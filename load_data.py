@@ -1,26 +1,10 @@
+#!/usr/env python
+
 from astropy.io import fits
 import numpy as np
 import scipy
 import ugali.utils.healpix
-
-# Define bands
-#def band(n): 
-#    if n == 1: return band1
-#    elif n == 2: return band2
-#def mag(n, typ='star'):
-#    out = 'SOF_'
-#    out += 'PSF_' if typ=='star' else 'BDF_'
-#    out += 'MAG_'
-#    out += band(n).upper() if (type(n) is int) else n.upper()
-#    return out
-#
-#def magerr(n, typ='star'):
-#    s = mag(n, typ)
-#    key = 'MAG_'
-#    loc = s.find(key)
-#    out = s[:loc] + key + 'ERR_' + s[loc+len(key):]
-#    return out
-
+from utils import *
 
 class Satellites:
     def __init__(self):
@@ -33,15 +17,11 @@ class Satellites:
 
 
 class Patch:
-    def band(self, n): 
-        if n == 1: return self.band1
-        elif n == 2: return self.band2
-        
     def mag(self, n, typ='star'):
         out = 'SOF_'
         out += 'PSF_' if typ=='star' else 'BDF_'
         out += 'MAG_'
-        out += self.band(n).upper() if (type(n) is int) else n.upper()
+        out += n.upper()
         return out
 
     def magerr(self, n, typ='star'):
@@ -51,10 +31,7 @@ class Patch:
         out = s[:loc] + key + 'ERR_' + s[loc+len(key):]
         return out
 
-    def __init__(self, band1='r', band2='i'):
-        self.band1 = band1
-        self.band2 = band2
-
+    def __init__(self):
         data = fits.open('datafiles/y6_gold_1_1_patch.fits')[1].data
         self.data = data[data['FLAGS_GOLD'] < 4]
 

@@ -6,23 +6,20 @@ import astropy.io.fits as fits
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import healpy as hp
 import scipy
-#from ugali.isochrone import factory as isochrone_factory
-from ugali.isochrone.parsec import Bressan2012
 import ugali.analysis.source
 import ugali.analysis.kernel
 import ugali.analysis.results
 import ugali.utils.healpix
-import ugali.utils.plotting
 import ugali.utils.projector
 import percent
 import plot_utils
 from scipy.stats import poisson, norm
 import load_data
 import warnings
+from utils import *
 
 matplotlib.rcParams['xtick.labelsize'] = 12
 matplotlib.rcParams['ytick.labelsize'] = 12
@@ -32,7 +29,6 @@ plt.ion()
 
 
 p = argparse.ArgumentParser()
-p.add_argument('-b', '--bands', default='ri')
 # Quick plots
 p.add_argument('--cc', action='store_true')
 p.add_argument('--iso', action='store_true')
@@ -48,173 +44,48 @@ p.add_argument('--plots', action='store_true')
 p.add_argument('--main', action='store_true')
 args = p.parse_args()
 
-band1, band2 = args.bands
-
-patch = load_data.Patch(band1, band2)
+patch = load_data.Patch()
 # For ease of typing:
 stars, galaxies = patch.stars, patch.galaxies
 center_ra, center_dec = patch.center_ra, patch.center_dec
-band = patch.band
 mag = patch.mag
 magerr = patch.magerr
 
-
-### Utility functions ###
-
-def magToFlux(mag):
-    """
-    Convert from an AB magnitude to a flux (Jy)
-    """
-    return 3631. * 10**(-0.4 * mag)
-
-def fluxToMag(flux):
-    """
-    Convert from flux (Jy) to AB magnitude
-    """
-    return -2.5 * np.log10(flux / 3631.)
-
-def getFluxError(mag, mag_error):
-    return magToFlux(mag) * mag_error / 1.0857362
-
-
-def color_cut(g, r, i):
-    cut = (g - r > 0.4) & (g - r < 1.1) & (r - i < 0.5)
-    return cut 
-
-a, b = -2.51758, 4.86721 # From abs_mag.py
-def mass_to_mag(stellar_mass):
-    return a*np.log10(stellar_mass) + b
-def mag_to_mass(m_v):
-    return 10**((m_v-b)/a)
-
-#########################
-
-
-# Generate Isochrone
-class Isochrone(Bressan2012):
-    def __init__(self, distance):
-        age = 10.
-        metal_z = 0.0001
-        distance_modulus = ugali.utils.projector.distanceToDistanceModulus(distance)
-        super(Isochrone, self).__init__(survey='des', age=age, z=metal_z, distance_modulus=distance_modulus, band_1=band(1), band_2=band(2))
-        delattr(self, 'mag') # I will be overwriting mag to a function
-
-    def mag(self, band):
-        return self.data[band]
-
-    def simulate(self, abs_mag, distance_modulus=None, **kwargs):
-        """
-        Simulate a set of stellar magnitudes (no uncertainty) for a
-        satellite of a given stellar mass and distance.
-
-        Parameters:
-        -----------
-        abs_mag : the absoulte V-band magnitude of the system
-        distance_modulus : distance modulus of the system (if None takes from isochrone)
-        kwargs : passed to iso.imf.sample
-
-        Returns:
-        --------
-        mag_g, mag_r, mag_i : simulated magnitudes with length stellar_mass/iso.stellar_mass()
-        """
-        stellar_mass = mag_to_mass(abs_mag)
-        if distance_modulus is None: distance_modulus = self.distance_modulus
-        # Total number of stars in system
-        n = int(round(stellar_mass / self.stellar_mass()))
-        f_g = scipy.interpolate.interp1d(self.mass_init, self.mag('g'))
-        f_r = scipy.interpolate.interp1d(self.mass_init, self.mag('r'))
-        f_i = scipy.interpolate.interp1d(self.mass_init, self.mag('i'))
-        mass_init_sample = self.imf.sample(n, np.min(self.mass_init), np.max(self.mass_init), **kwargs)
-        mag_g_sample, mag_r_sample, mag_i_sample = f_g(mass_init_sample), f_r(mass_init_sample), f_i(mass_init_sample) 
-        return mag_g_sample + distance_modulus, mag_r_sample + distance_modulus, mag_i_sample + distance_modulus
-
-    def separation(self, band_1, mag_1, band_2, mag_2):
-        """ 
-        Calculate the separation between a specific point and the
-        isochrone in magnitude-magnitude space. Uses an interpolation
-
-        ADW: Could speed this up...
-
-        Parameters:
-        -----------
-        mag_1 : The magnitude of the test points in the first band
-        mag_2 : The magnitude of the test points in the second band
-
-        Returns:
-        --------
-        sep : Minimum separation between test points and isochrone interpolation
-        """
-        iso_mag_1 = self.mag(band_1) + self.distance_modulus
-        iso_mag_2 = self.mag(band_2) + self.distance_modulus
-        
-        def interp_iso(iso_mag_1,iso_mag_2,mag_1,mag_2):
-            interp_1 = scipy.interpolate.interp1d(iso_mag_1,iso_mag_2,bounds_error=False)
-            interp_2 = scipy.interpolate.interp1d(iso_mag_2,iso_mag_1,bounds_error=False)
-
-            dy = interp_1(mag_1) - mag_2
-            dx = interp_2(mag_2) - mag_1
-
-            dmag_1 = np.fabs(dx*dy) / (dx**2 + dy**2) * dy
-            dmag_2 = np.fabs(dx*dy) / (dx**2 + dy**2) * dx
-
-            return dmag_1, dmag_2
-
-        # Separate the various stellar evolution stages
-        if np.issubdtype(self.stage.dtype,np.number):
-            sel = (self.stage < self.hb_stage)
-        else:
-            sel = (self.stage != self.hb_stage)
-
-        # First do the MS/RGB
-        rgb_mag_1 = iso_mag_1[sel]
-        rgb_mag_2 = iso_mag_2[sel]
-        dmag_1,dmag_2 = interp_iso(rgb_mag_1,rgb_mag_2,mag_1,mag_2)
-
-        # Then do the HB (if it exists)
-        if not np.all(sel):
-            hb_mag_1 = iso_mag_1[~sel]
-            hb_mag_2 = iso_mag_2[~sel]
-
-            hb_dmag_1,hb_dmag_2 = interp_iso(hb_mag_1,hb_mag_2,mag_1,mag_2)
-
-            dmag_1 = np.nanmin([dmag_1,hb_dmag_1],axis=0)
-            dmag_2 = np.nanmin([dmag_2,hb_dmag_2],axis=0)
-
-        #return dmag_1,dmag_2
-        return np.sqrt(dmag_1**2 + dmag_2**2)
-
-
 def plot_isochrone(distance):
-    # Field
-    plt.figure()
-    plt.xlabel('{} - {}'.format(band(1).lower(), band(2).lower()))
-    if band(1) == 'r':
-        plt.xlim(-0.3, 0.6)
-    elif band(1) == 'g':
-        plt.xlim(-0.4, 1.4)
-    plt.ylim(15, 26)
-    plt.ylabel(band(1).lower())
+    for band_1, band_2 in ('gr', 'ri'):
+        iso = Isochrone(distance)
 
-    cut_field = color_cut(stars[mag('g')], stars[mag('r')], stars[mag('i')])
-    plt.scatter(stars[~cut_field][mag(1)] - stars[~cut_field][mag(2)], stars[~cut_field][mag(1)], s=1, color='0.75', label='Excluded stars', zorder=0)
-    plt.scatter(stars[cut_field][mag(1)] - stars[cut_field][mag(2)], stars[cut_field][mag(1)], s=1, color='red', label='Included stars', zorder=5)
-    plt.legend(markerscale=5.0)
+        # Field
+        plt.figure()
+        plt.xlabel('{} - {}'.format(band_1.lower(), band_2.lower()))
+        if band_1 == 'r':
+            plt.xlim(-0.3, 0.6)
+        elif band_1 == 'g':
+            plt.xlim(-0.4, 1.4)
+        plt.ylim(15, 26)
+        plt.ylabel(band_1.lower())
 
-    # Isochrone
-    iso = Isochrone(distance)
-    ugali.utils.plotting.drawIsochrone(iso, cookie=True, color='k', alpha=0.5, zorder=3)
+        cut_color = color_cut(stars[mag('g')], stars[mag('r')], stars[mag('i')])
+        cut_iso = iso_cut(iso, band_1, stars[mag(band_1)], band_2, stars[mag(band_2)])
+        cut_field = cut_color & cut_iso
+        plt.scatter(stars[~cut_field][mag(band_1)] - stars[~cut_field][mag(band_2)], stars[~cut_field][mag(band_1)], s=1, color='0.75', label='Excluded stars', zorder=0)
+        plt.scatter(stars[cut_field][mag(band_1)] - stars[cut_field][mag(band_2)], stars[cut_field][mag(band_1)], s=1, color='red', label='Included stars', zorder=5)
+        plt.legend(markerscale=5.0)
 
-    ax = plt.gca()
-    ax.invert_yaxis()
+        # Isochrone
+        #iso.draw(band_1, band_2, cookie=True) # color='k', alpha=0.5, zorder=3)
+        iso.draw(band_1, band_2, cookie=False, zorder=3)
 
-    title = '$D = {}$ kpc'.format(distance)
-    plt.title(title)
-    outdir = 'isochrone_plots/{}-{}/'.format(band(1),band(2))
-    outname = 'iso_cmd_{}kpc'.format(distance)
-    subprocess.call('mkdir -p {}'.format(outdir).split())
-    plt.savefig(outdir + outname + '.png')
-    plt.close()
+        ax = plt.gca()
+        ax.invert_yaxis()
 
+        title = '$D = {}$ kpc'.format(distance)
+        plt.title(title)
+        outdir = 'isochrone_plots/{}-{}/'.format(band_1,band_2)
+        outname = 'iso_cmd_{}kpc'.format(distance)
+        subprocess.call('mkdir -p {}'.format(outdir).split())
+        plt.savefig(outdir + outname + '.png')
+        plt.close()    
 
 def plot_color_color(distance):
     plt.figure()
@@ -336,18 +207,13 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
     lon, lat, mag_g, mag_r, mag_i, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
 
     iso = Isochrone(distance)
-    seps_gr = iso.separation('g', mag_g, 'r', mag_r)
-    seps_ri = iso.separation('r', mag_r, 'i', mag_i)
-    cut_sat = seps_gr < 0.1
-    cut_sat &= seps_ri < 0.1
+    cut_sat  = iso_cut(iso, 'g', mag_g, 'r', mag_r)
+    cut_sat &= iso_cut(iso ,'r', mag_r, 'i', mag_i)
     cut_sat &= color_cut(mag_g, mag_r, mag_i)
 
     # Apply isochrone and color cut to field stars
-    iso = Isochrone(distance)
-    seps_gr = iso.separation('g', stars[mag('g')], 'r', stars[mag('r')])
-    seps_ri = iso.separation('r', stars[mag('r')], 'i', stars[mag('i')])
-    cut_field = seps_gr < 0.1 # Should automatically take care of nans 
-    cut_field &= seps_ri < 0.1
+    cut_field  = iso_cut(iso, 'g', stars[mag('g')], 'r', stars[mag('r')])
+    cut_field &= iso_cut(iso, 'r', stars[mag('r')], 'i', stars[mag('i')])
     cut_field &= color_cut(stars[mag('g')], stars[mag('r')], stars[mag('i')])
     
     ### Significance
@@ -467,7 +333,7 @@ def create_sigma_matrix(distances, abs_mags, r_physical_kpcs, outname='sigma_mat
         for j in range(n_m):
             for k in range(n_r):
                 d, m, r = distances[i], abs_mags[j], r_physical_kpcs[k]
-                sigma, params = calc_sigma(inputs, d, m, r, plot=False)
+                sigma = calc_sigma(inputs, d, m, r, plot=False)
                 #s = mag_to_mass(m)
 
                 sigma_matrix[i,j,k] = sigma
@@ -478,7 +344,8 @@ def create_sigma_matrix(distances, abs_mags, r_physical_kpcs, outname='sigma_mat
 
     np.save(outname+'.npy', sigma_matrix) # Not used but I feel like I might as well make it
 
-    dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('stellar_mass',float), ('sigma',float)]
+    #dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('stellar_mass',float), ('sigma',float)]
+    dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('sigma',float)]
     sigma_fits = np.array(sigma_fits, dtype=dtype)
     fits.writeto(outname+'.fits', sigma_fits, overwrite=True)
 
@@ -555,10 +422,10 @@ def plot_matrix(fname, *args, **kwargs):
 
         # Insert stellar mass ticks/label in appropriate place
         if 'abs_mag' in kwargs:
-            stellar_mass = mag_to_mass['stellar_mass'] 
+            stellar_mass = mag_to_mass(kwargs['stellar_mass']) 
             title += "; {} = {} {}".format(dic['stellar_mass'][0], dic['stellar_mass'][1](stellar_mass), dic['stellr_mass'][2])
         elif 'abs_mag' in args:
-            abs_mags = sorted(set(table['abs_mag']))
+            abs_mags = np.array( sorted(set(table['abs_mag'])) )
             stellar_masses = mag_to_mass(abs_mags)
             if x == 'abs_mag':
                 twin_ax = ax.twiny()
@@ -625,13 +492,13 @@ if args.scan or args.plots:
     if args.plots:
         subprocess.call('mkdir -p {}'.format('mat_plots').split()) # Don't want to have this call happen for each and every plot
 
-        for d in distance:
+        for d in distances:
             plot_matrix('sigma_matrix', 'abs_mag', 'r_physical', distance=d)
 
-        for r in r_physical_kpc:
+        for r in r_physical_kpcs:
             plot_matrix('sigma_matrix', 'distance', 'abs_mag', r_physical=r)
 
-        for m in abs_mag:
+        for m in abs_mags:
             plot_matrix('sigma_matrix', 'distance', 'r_physical', abs_mag=m)
 
 
