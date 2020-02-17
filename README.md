@@ -1,2 +1,2 @@
 # far-out
-Searches for distance ultra-faint Milky Way satellites
+Searches for distant ultra-faint Milky Way satellites
