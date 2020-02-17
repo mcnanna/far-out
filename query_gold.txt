@@ -1,0 +1,14 @@
+SELECT
+    coadd_object_id,
+    ra, dec,
+    sof_psf_mag_g, sof_psf_mag_r, sof_psf_mag_i, sof_psf_mag_z,
+    sof_psf_mag_err_g, sof_psf_mag_err_r, sof_psf_mag_err_i, sof_psf_mag_err_z,
+    sof_bdf_mag_g, sof_bdf_mag_r, sof_bdf_mag_i, sof_bdf_mag_z,
+    sof_bdf_mag_err_g, sof_bdf_mag_err_r, sof_bdf_mag_err_i, sof_bdf_mag_err_z, 
+    ext_sof, class_star_g, class_star_r, class_star_i, class_star_z
+    flags_gold
+FROM
+    des_admin.y6_gold_1_1
+WHERE
+    ra BETWEEN 35 AND 36
+    AND dec BETWEEN -5 AND -4
