@@ -125,12 +125,10 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
     """
 
     # Probably don't want to parse every time
-
     s = ugali.analysis.source.Source()
 
     # Following McConnachie 2012, ellipticity = 1 - (b/a) , where a is semi-major axis and b is semi-minor axis
     r_h = np.degrees(np.arcsin(r_physical / distance)) # Azimuthally averaged half-light radius
-    #ellipticity = 0.3 # Semi-arbitrary default for testing purposes
     # See http://iopscience.iop.org/article/10.3847/1538-4357/833/2/167/pdf
     # Based loosely on https://arxiv.org/abs/0805.2945
     ellipticity = 0.3 #np.random.uniform(0.1, 0.8)
@@ -232,7 +230,6 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
     rho_field = len(stars[cut_field])/1.0
     background = rho_field * np.pi*a*b
 
-    #sigma = norm.isf(poisson.sf(signal, background)/2.0)
     sigma = min(norm.isf(poisson.sf(signal, background)), 38.0)
 
     if plot:
@@ -249,7 +246,6 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
         plt.scatter(mag_g[~cut_sat] - mag_r[~cut_sat], mag_g[~cut_sat], s=2, c='0.4', label='Excluded satellite stars', zorder=9)
         plt.scatter(stars[cut_field][mag('g')]-stars[cut_field][mag('r')], stars[cut_field][mag('g')], s=4, color='red', label='Included field stars', zorder=5)
         plt.scatter(stars[~cut_field][mag('g')]-stars[~cut_field][mag('r')], stars[~cut_field][mag('g')], s=0.5, color='coral', label='Excluded field stars', zorder=0)
-        #plt.legend(markerscale=2.0)
         plt.xlim(0, 1.2)
         plt.xlabel('g - r')
         plt.ylim(min(stars[cut_field][mag('g')])-1.0, max(stars[cut_field][mag('g')])+1.0)
@@ -264,13 +260,11 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
         plt.scatter(mag_r[~cut_sat] - mag_i[~cut_sat], mag_r[~cut_sat], s=2, c='0.4', label='Excluded satellite stars', zorder=9)
         plt.scatter(stars[cut_field][mag('r')]-stars[cut_field][mag('i')], stars[cut_field][mag('r')], s=4, color='red', label='Included field stars', zorder=5)
         plt.scatter(stars[~cut_field][mag('r')]-stars[~cut_field][mag('i')], stars[~cut_field][mag('r')], s=0.5, color='coral', label='Excluded field stars', zorder=0)
-        #plt.legend(markerscale=2.0)
         plt.xlim(-0.3, 0.7)
         plt.xlabel('r - i')
         plt.ylim(min(stars[cut_field][mag('r')])-1.0, max(stars[cut_field][mag('r')])+1.0)
         plt.ylabel('r')
         ax.invert_yaxis()
-
 
         ### Color-color plot
         ax = axes[1][0]
@@ -285,8 +279,6 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
         plt.scatter(mag_g[~cut_sat] - mag_r[~cut_sat], mag_r[~cut_sat] - mag_i[~cut_sat], s=2, c='0.4', label='Excluded satellite stars', zorder=9)
         plt.scatter(stars[cut_field][mag('g')]-stars[cut_field][mag('r')], stars[cut_field][mag('r')]-stars[cut_field][mag('i')], s=4, marker='.', color='red', label='Included stars', zorder=5)
         plt.scatter(stars[~cut_field][mag('g')]-stars[~cut_field][mag('r')], stars[~cut_field][mag('r')]-stars[~cut_field][mag('i')], s=0.5, marker='.', color='coral', label='Excluded stars', zorder=0)
-        #plt.legend(markerscale=2.0)
-
 
         ### Spatial plot
         ax = axes[1][1]
@@ -334,17 +326,14 @@ def create_sigma_matrix(distances, abs_mags, r_physical_kpcs, outname='sigma_mat
             for k in range(n_r):
                 d, m, r = distances[i], abs_mags[j], r_physical_kpcs[k]
                 sigma = calc_sigma(inputs, d, m, r, plot=False)
-                #s = mag_to_mass(m)
 
                 sigma_matrix[i,j,k] = sigma
                 sigma_fits.append((d, m, r, sigma))
-                #sigma_fits.append((d, m, r, s, sigma))
 
                 percent.bar(i*n_m*n_r + j*n_r + k + 1, n_d*n_m*n_r)
 
     np.save(outname+'.npy', sigma_matrix) # Not used but I feel like I might as well make it
 
-    #dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('stellar_mass',float), ('sigma',float)]
     dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('sigma',float)]
     sigma_fits = np.array(sigma_fits, dtype=dtype)
     fits.writeto(outname+'.fits', sigma_fits, overwrite=True)
@@ -352,10 +341,15 @@ def create_sigma_matrix(distances, abs_mags, r_physical_kpcs, outname='sigma_mat
 
 
 def plot_matrix(fname, *args, **kwargs):
-    dic = {'distance': ('$D$', lambda d: int(d), 'kpc', 'linear'),
-          'abs_mag': ('$M_V$', lambda v: round(v, 1), 'mag', 'linear'),
-          'r_physical': ('$r_{1/2}$', lambda r: int(round(r*1000, 0)), 'pc', 'log'),
-          'stellar_mass': ('$M_*$', lambda m: '$10^{{{}}}$'.format(round(np.log10(m), 1)), '$M_{\odot}$', 'log')}
+    dic = {'distance': {'label':'$D$', 'conversion': lambda d:int(d), 'unit':'kpc', 'scale':'linear', 'reverse':False}, 
+           'abs_mag': {'label':'$M_V$', 'conversion': lambda v:round(v,1), 'unit':'mag', 'scale':'linear', 'reverse':True},
+           'r_physical': {'label':'$r_{1/2}$', 'conversion': lambda r:int(round(r*1000,0)), 'unit':'pc', 'scale':'log', 'reverse':False},
+           'stellar_mass': {'label':'$M_*$', 'conversion': lambda m: '$10^{{{}}}$'.format(round(np.log10(m),1)), 'unit':'$M_{\odot}$', 'scale':'log', 'reverse':False}
+           }
+    #dic = {'distance': ('$D$', lambda d: int(d), 'kpc', 'linear'),
+    #      'abs_mag': ('$M_V$', lambda v: round(v, 1), 'mag', 'linear'),
+    #      'r_physical': ('$r_{1/2}$', lambda r: int(round(r*1000, 0)), 'pc', 'log'),
+    #      'stellar_mass': ('$M_*$', lambda m: '$10^{{{}}}$'.format(round(np.log10(m), 1)), '$M_{\odot}$', 'log')}
     def is_near(arr, val, e=0.001):
         return np.array([val-e < a < val+e for a in arr])
 
@@ -375,12 +369,12 @@ def plot_matrix(fname, *args, **kwargs):
 
     # This block is kind of obsolete, I haven't kept it updated
     if len(args) == 1:
-        x, = args
+        x, y = args
         plt.plot(table[x], table['sigma'], '-o')
-        plt.xlabel('{} ({})'.format(dic[x][0], dic[x][2]))
-        plt.xscale(dic[x][3])
+        plt.xlabel('{} ({})'.format(dic[x]['label'], dic[x]['unit']))
+        plt.xscale(dic[x]['scale'])
         plt.ylabel('$\sigma$')
-        title = ('; '.join(["{} = {} {}".format(dic[key][0], dic[key][1](kwargs[key]), dic[key][2]) for key in kwargs]))
+        title = ('; '.join(["{} = {} {}".format(dic[key]['label'], dic[key]['conversion'](kwargs[key]), dic[key]['unit']) for key in kwargs]))
         plt.title(title)
         outname = '{}__'.format(x) + '_'.join(['{}={}'.format(key, kwargs[key]) for key in kwargs])
         plt.savefig('mat_plots/1D_' + outname + '.png')
@@ -389,8 +383,8 @@ def plot_matrix(fname, *args, **kwargs):
     elif len(args) == 2:
         x, y = args
         # Turn into matrix
-        x_vals = sorted(set(table[x]))
-        y_vals = sorted(set(table[y]))
+        x_vals = sorted(set(table[x]), reverse=dic[x]['reverse'])
+        y_vals = sorted(set(table[y]), reverse=dic[y]['reverse'])
         mat = np.zeros((len(x_vals), len(y_vals)))
         for i, x_val in enumerate(x_vals):
             for j, y_val in enumerate(y_vals):
@@ -410,54 +404,54 @@ def plot_matrix(fname, *args, **kwargs):
 
         xticks = np.arange(len(x_vals)) + 0.5
         ax.set_xticks(xticks)
-        ax.set_xticklabels(map(dic[x][1], x_vals))
-        plt.xlabel('{} ({})'.format(dic[x][0], dic[x][2]))
+        ax.set_xticklabels(map(dic[x]['conversion'], x_vals))
+        plt.xlabel('{} ({})'.format(dic[x]['label'], dic[x]['unit']))
 
         yticks = np.arange(len(y_vals)) + 0.5
         ax.set_yticks(yticks)
-        ax.set_yticklabels(map(dic[y][1], y_vals))
-        plt.ylabel('{} ({})'.format(dic[y][0], dic[y][2]))
+        ax.set_yticklabels(map(dic[y]['conversion'], y_vals))
+        plt.ylabel('{} ({})'.format(dic[y]['label'], dic[y]['unit']))
 
-        title = ('; '.join(["{} = {} {}".format(dic[key][0], dic[key][1](kwargs[key]), dic[key][2]) for key in kwargs]))
+        title = ('; '.join(["{} = {} {}".format(dic[key]['label'], dic[key]['conversion'](kwargs[key]), dic[key]['unit']) for key in kwargs]))
 
         # Insert stellar mass ticks/label in appropriate place
         if 'abs_mag' in kwargs:
-            stellar_mass = mag_to_mass(kwargs['stellar_mass']) 
-            title += "; {} = {} {}".format(dic['stellar_mass'][0], dic['stellar_mass'][1](stellar_mass), dic['stellr_mass'][2])
+            stellar_mass = mag_to_mass(kwargs['abs_mag']) 
+            title += "; {} = {} {}".format(dic['stellar_mass']['label'], dic['stellar_mass']['conversion'](stellar_mass), dic['stellar_mass']['unit'])
+            plt.title(title)
         elif 'abs_mag' in args:
-            abs_mags = np.array( sorted(set(table['abs_mag'])) )
+            abs_mags = np.array( sorted(set(table['abs_mag']), reverse=True) )
             stellar_masses = mag_to_mass(abs_mags)
             if x == 'abs_mag':
                 twin_ax = ax.twiny()
                 twin_ax.set_xticks(list(xticks) + [xticks[-1]+0.5]) # Have to add an extra on the end to make it scale right
-                twin_ax.set_xticklabels(map(dic['stellar_mass'][1], stellar_masses) + [''])
-                twin_ax.set_xlabel('{} ({})'.format(dic['stellar_mass'][0], dic['stellar_mass'][2]))
+                twin_ax.set_xticklabels(map(dic['stellar_mass']['conversion'], stellar_masses) + [''])
+                twin_ax.set_xlabel('{} ({})'.format(dic['stellar_mass']['label'], dic['stellar_mass']['unit']))
                 plt.subplots_adjust(top=0.85) # Make more vertical room 
                 plt.colorbar(label='$\sigma$')
                 plt.title(title, y=1.12) # Push title above upper axis labels
             elif y == 'abs_mag':
                 twin_ax = ax.twinx()
                 twin_ax.set_yticks(list(yticks) + [yticks[-1]+0.5])
-                twin_ax.set_yticklabels(map(dic['stellar_mass'][1], stellar_masses) + [''])
-                twin_ax.set_ylabel('{} ({})'.format(dic['stellar_mass'][0], dic['stellar_mass'][2]))
+                twin_ax.set_yticklabels(map(dic['stellar_mass']['conversion'], stellar_masses) + [''])
+                twin_ax.set_ylabel('{} ({})'.format(dic['stellar_mass']['label'], dic['stellar_mass']['unit']))
                 plt.colorbar(label='$\sigma$', pad=0.15) # Move colorbar right to make room for axis labels
                 plt.title(title)
         else:
             plt.title(title)
             plt.colorbar(label='$\sigma$')
 
-
+        """
         # Place known sats on plot:
-        #translation = {'distance':'distance_kpc', 'abs_mag'
-        #sats = load_data.Satellites()
-        #for dwarf in sats.dwarfs:
-
+        translation = {'distance':'distance_kpc', 'abs_mag':'m_v', 'r_physical':'r_physical'}
+        sats = load_data.Satellites()
+        plt.scatter(sats.dwarfs[translation[x]], sats.dwarfs[translation[y]])
+        """
 
         outname = '{}_vs_{}__'.format(x, y) + '_'.join(['{}={}'.format(key, round(kwargs[key],3)) for key in kwargs])
         plt.savefig('mat_plots/2D_' + outname + '.png')
         plt.close()
-
-
+        
 
 def main():
     pass
@@ -474,17 +468,10 @@ if args.sim:
     inputs = load_data.Inputs()
     calc_sigma(inputs, args.distance, args.abs_mag, args.r_physical/1000., plot=True)
 if args.scan or args.plots:
-    """
     distances = np.arange(400, 2200, 200)
-    #log_stellar_mass = np.arange(3,6.2,0.2)
-    #stellar_mass = 10**log_stellar_mass
     abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
     log_r_physical_pc = np.arange(1, 3.2, 0.2)
     r_physical_kpcs = 10**log_r_physical_pc / 1000.0
-    """
-    distances = np.array([500, 700, 1000])
-    abs_mags = np.array([-4, -7, -10])
-    r_physical_kpcs = np.array([0.100, 0.200, 0.300])
 
     if args.scan:
         create_sigma_matrix(distances, abs_mags, r_physical_kpcs, outname='sigma_matrix')
@@ -500,8 +487,6 @@ if args.scan or args.plots:
 
         for m in abs_mags:
             plot_matrix('sigma_matrix', 'distance', 'r_physical', abs_mag=m)
-
-
 
 if args.main:
     main()
