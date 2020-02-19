@@ -36,10 +36,10 @@ def run():
 
     return exponents, abs_mags
 
-#exponents, abs_mags = run()
+exponents, abs_mags = run()
 #np.save('abs_mag', (exponents, abs_mags))
+#exponents, abs_mags = np.load('abs_mag.npy')
 
-exponents, abs_mags = np.load('abs_mag.npy')
 linear = scipy.stats.linregress(exponents, abs_mags)
 print linear
 m, b = linear[0], linear[1]

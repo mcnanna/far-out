@@ -218,8 +218,6 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
 def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
     lon, lat, mag_g, mag_r, mag_i, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
 
-    # TODO: cutting could maybe be sped up by applying cuts in succession, rather than concatenating them and applying them at the end
-
     iso = Isochrone(distance)
     cut_sat  = iso_cut(iso, 'g', mag_g, 'r', mag_r)
     cut_sat &= iso_cut(iso ,'r', mag_r, 'i', mag_i)
@@ -319,7 +317,7 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
         handles, labels = axes[0][0].get_legend_handles_labels()
         fig.legend(handles, labels, markerscale=2.0)
 
-        outname = 'D={}_M={}_r={}'.format(int(distance), round(abs_mag,1), int(round(r_physical,0)))
+        outname = 'D={}_Mv={}_r={}'.format(int(distance), round(abs_mag,1), int(round(r_physical,0)))
         outdir = 'sat_plots/'
         subprocess.call('mkdir -p {}'.format(outdir).split())
         plt.savefig(outdir + outname + '.png')
