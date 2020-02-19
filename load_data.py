@@ -9,8 +9,8 @@ from utils import *
 class Satellites:
     def __init__(self):
         self.master = np.recfromcsv('/Users/mcnanna/Research/y3-mw-sats/data/mw_sats_master.csv')
-        self.all = master_csv[np.where(self.master['type2'] >= 0)[0]]
-        self.dwarfs = master_csv[np.where(self.master['type2'] >= 3)[0]]
+        self.all = self.master[np.where(self.master['type2'] >= 0)[0]]
+        self.dwarfs = self.master[np.where(self.master['type2'] >= 3)[0]]
         
     def __getitem__(self, key):
         return self.master[np.where(self.master['name'] == name)[0]][0]

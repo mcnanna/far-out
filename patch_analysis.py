@@ -121,14 +121,14 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
     # Stolen from ugali/scratch/simulation/simulate_population.py. Look there for a more general functioon,
     # which uses maglims, extinction, stuff like that
     """
-    r_physical is azimuthally averaged half-light radius, kpc
+    r_physical is azimuthally averaged half-light radius, pc
     """
 
     # Probably don't want to parse every time
     s = ugali.analysis.source.Source()
 
     # Following McConnachie 2012, ellipticity = 1 - (b/a) , where a is semi-major axis and b is semi-minor axis
-    r_h = np.degrees(np.arcsin(r_physical / distance)) # Azimuthally averaged half-light radius
+    r_h = np.degrees(np.arcsin(r_physical/1000. / distance)) # Azimuthally averaged half-light radius
     # See http://iopscience.iop.org/article/10.3847/1538-4357/833/2/167/pdf
     # Based loosely on https://arxiv.org/abs/0805.2945
     ellipticity = 0.3 #np.random.uniform(0.1, 0.8)
@@ -195,7 +195,7 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
     flux = np.sum(10**(-v/2.5))
     abs_mag_realized = -2.5*np.log10(flux) - distance_modulus
 
-    r_physical = distance * np.tan(np.radians(r_h)) # Azimuthally averaged half-light radius, kpc
+    r_physical = distance * np.tan(np.radians(r_h)) * 1000. # Azimuthally averaged half-light radius, pc
     surface_brightness_realized = ugali.analysis.results.surfaceBrightness(abs_mag_realized, r_physical, distance) # Average within azimuthally averaged half-light radius
 
     return lon[cut_detect], lat[cut_detect], mag_g_meas[cut_detect], mag_r_meas[cut_detect], mag_i_meas[cut_detect], a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended
@@ -203,6 +203,8 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
 
 def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
     lon, lat, mag_g, mag_r, mag_i, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
+
+    # TODO: cutting could maybe be sped up by applying cuts in succession, rather than concatenating them and applying them at the end
 
     iso = Isochrone(distance)
     cut_sat  = iso_cut(iso, 'g', mag_g, 'r', mag_r)
@@ -234,7 +236,7 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
 
     if plot:
         fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12, 9))
-        title = '$D = {}$ kpc, $M_V = {}$ $M_\odot$, $r_{{1/2}} = {}$ pc\n$\sigma = {}$'.format(int(round(distance,0)), round(abs_mag_realized, 1), int(round(r_physical*1000, 0)), round(sigma, 1))
+        title = '$D = {}$ kpc, $M_V = {}$ $M_\odot$, $r_{{1/2}} = {}$ pc\n$\sigma = {}$'.format(int(round(distance,0)), round(abs_mag_realized, 1), int(round(r_physical, 0)), round(sigma, 1))
         fig.suptitle(title)
 
         ### CMD plots
@@ -303,7 +305,7 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
         handles, labels = axes[0][0].get_legend_handles_labels()
         fig.legend(handles, labels, markerscale=2.0)
 
-        outname = 'D={}_M={}_r={}'.format(int(distance), round(abs_mag,1), int(round(r_physical*1000,0)))
+        outname = 'D={}_M={}_r={}'.format(int(distance), round(abs_mag,1), int(round(r_physical,0)))
         outdir = 'sat_plots/'
         subprocess.call('mkdir -p {}'.format(outdir).split())
         plt.savefig(outdir + outname + '.png')
@@ -313,10 +315,10 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
     return sigma
 
 
-def create_sigma_matrix(distances, abs_mags, r_physical_kpcs, outname='sigma_matrix'):
+def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix'):
     n_d = len(distances)
     n_m = len(abs_mags)
-    n_r = len(r_physical_kpcs)
+    n_r = len(r_physicals)
     inputs = load_data.Inputs()
 
     sigma_matrix = np.zeros((n_d, n_m, n_r))
@@ -324,7 +326,7 @@ def create_sigma_matrix(distances, abs_mags, r_physical_kpcs, outname='sigma_mat
     for i in range(n_d):
         for j in range(n_m):
             for k in range(n_r):
-                d, m, r = distances[i], abs_mags[j], r_physical_kpcs[k]
+                d, m, r = distances[i], abs_mags[j], r_physicals[k]
                 sigma = calc_sigma(inputs, d, m, r, plot=False)
 
                 sigma_matrix[i,j,k] = sigma
@@ -343,13 +345,9 @@ def create_sigma_matrix(distances, abs_mags, r_physical_kpcs, outname='sigma_mat
 def plot_matrix(fname, *args, **kwargs):
     dic = {'distance': {'label':'$D$', 'conversion': lambda d:int(d), 'unit':'kpc', 'scale':'linear', 'reverse':False}, 
            'abs_mag': {'label':'$M_V$', 'conversion': lambda v:round(v,1), 'unit':'mag', 'scale':'linear', 'reverse':True},
-           'r_physical': {'label':'$r_{1/2}$', 'conversion': lambda r:int(round(r*1000,0)), 'unit':'pc', 'scale':'log', 'reverse':False},
+           'r_physical': {'label':'$r_{1/2}$', 'conversion': lambda r:int(round(r,0)), 'unit':'pc', 'scale':'log', 'reverse':False},
            'stellar_mass': {'label':'$M_*$', 'conversion': lambda m: '$10^{{{}}}$'.format(round(np.log10(m),1)), 'unit':'$M_{\odot}$', 'scale':'log', 'reverse':False}
            }
-    #dic = {'distance': ('$D$', lambda d: int(d), 'kpc', 'linear'),
-    #      'abs_mag': ('$M_V$', lambda v: round(v, 1), 'mag', 'linear'),
-    #      'r_physical': ('$r_{1/2}$', lambda r: int(round(r*1000, 0)), 'pc', 'log'),
-    #      'stellar_mass': ('$M_*$', lambda m: '$10^{{{}}}$'.format(round(np.log10(m), 1)), '$M_{\odot}$', 'log')}
     def is_near(arr, val, e=0.001):
         return np.array([val-e < a < val+e for a in arr])
 
@@ -441,16 +439,37 @@ def plot_matrix(fname, *args, **kwargs):
             plt.title(title)
             plt.colorbar(label='$\sigma$')
 
-        """
         # Place known sats on plot:
-        translation = {'distance':'distance_kpc', 'abs_mag':'m_v', 'r_physical':'r_physical'}
-        sats = load_data.Satellites()
-        plt.scatter(sats.dwarfs[translation[x]], sats.dwarfs[translation[y]])
-        """
+        if 'distance' in kwargs:
+            plt.sca(ax)
+            translation = {'distance':'distance_kpc', 'abs_mag':'m_v', 'r_physical':'r_physical'}
+            dwarfs = load_data.Satellites().dwarfs
+            xmin, xmax = (x_vals[0], x_vals[-1]) if not dic[x]['reverse'] else (x_vals[-1], x_vals[0])
+            ymin, ymax = (y_vals[0], y_vals[-1]) if not dic[y]['reverse'] else (y_vals[-1], y_vals[0])
+            cut = xmin < dwarfs[translation[x]]
+            cut &= dwarfs[translation[x]] < xmax
+            cut &= ymin < dwarfs[translation[y]]
+            cut &= dwarfs[translation[y]] < ymax
+            dwarfs = dwarfs[cut]
 
-        outname = '{}_vs_{}__'.format(x, y) + '_'.join(['{}={}'.format(key, round(kwargs[key],3)) for key in kwargs])
-        plt.savefig('mat_plots/2D_' + outname + '.png')
-        plt.close()
+            def transform(value, axis_vals, log=False):
+                if log:
+                    axis_vals = np.log10(axis_vals)
+                    value = np.log10(value)
+                delta = axis_vals[1] - axis_vals[0]
+                mn = axis_vals[0] - delta/2.
+                mx = axis_vals[-1] + delta/2.
+                return ((value-mn)/(mx-mn)) * len(axis_vals)
+
+            sat_xs = transform(dwarfs[translation[x]], x_vals, dic[x]['scale']=='log')
+            sat_ys = transform(dwarfs[translation[y]], y_vals, dic[y]['scale']=='log')
+            plt.scatter(sat_xs, sat_ys, color='k')
+        
+        #TODO: Remove these #s!!!
+        #outname = '{}_vs_{}__'.format(x, y) + '_'.join(['{}={}'.format(key, round(kwargs[key],3)) for key in kwargs])
+        #plt.savefig('mat_plots/2D_' + outname + '.png')
+        #plt.close()
+
         
 
 def main():
@@ -466,15 +485,15 @@ if args.cc or args.iso:
             plot_isochrone(distance)
 if args.sim:
     inputs = load_data.Inputs()
-    calc_sigma(inputs, args.distance, args.abs_mag, args.r_physical/1000., plot=True)
+    calc_sigma(inputs, args.distance, args.abs_mag, args.r_physical, plot=True)
 if args.scan or args.plots:
     distances = np.arange(400, 2200, 200)
     abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
-    log_r_physical_pc = np.arange(1, 3.2, 0.2)
-    r_physical_kpcs = 10**log_r_physical_pc / 1000.0
+    log_r_physical_pcs = np.arange(1, 3.2, 0.2)
+    r_physicals = 10**log_r_physical_pc
 
     if args.scan:
-        create_sigma_matrix(distances, abs_mags, r_physical_kpcs, outname='sigma_matrix')
+        create_sigma_matrix(distances, abs_mags, r_physical_, outname='sigma_matrix')
 
     if args.plots:
         subprocess.call('mkdir -p {}'.format('mat_plots').split()) # Don't want to have this call happen for each and every plot
@@ -482,7 +501,7 @@ if args.scan or args.plots:
         for d in distances:
             plot_matrix('sigma_matrix', 'abs_mag', 'r_physical', distance=d)
 
-        for r in r_physical_kpcs:
+        for r in r_physicals:
             plot_matrix('sigma_matrix', 'distance', 'abs_mag', r_physical=r)
 
         for m in abs_mags:

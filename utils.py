@@ -24,7 +24,10 @@ def getFluxError(mag, mag_error):
 
 def color_cut(g, r, i):
     cut = (g - r > 0.4) & (g - r < 1.1) & (r - i < 0.5)
+    cut &= r < 24.5
+    cut &= i < 24.0
     return cut 
+
 def iso_cut(iso, band_1, mag_1, band_2, mag_2):
     seps = iso.separation(band_1, mag_1, band_2, mag_2)
     return seps < 0.1
