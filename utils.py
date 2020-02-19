@@ -22,15 +22,30 @@ def getFluxError(mag, mag_error):
     return magToFlux(mag) * mag_error / 1.0857362
 
 
-def color_cut(g, r, i):
-    cut = (g - r > 0.4) & (g - r < 1.1) & (r - i < 0.5)
+def color_cut(g, r, i, color_tol=0.2):
+    # Central line, fitted in cc_cut.py
+    # y = mx + b
+    m, b = 0.369485, -0.0055077
+    def distance(x, y):
+        return np.sqrt( (m*x+b-y)**2 / (m**2+1) )
+
+    x = g-r
+    y = r-i
+    cut = distance(x, y) < color_tol
+    #cut = (g - r > 0.4) & (g - r < 1.1) & (r - i < 0.5)
     cut &= r < 24.5
-    cut &= i < 24.0
+    cut &= i < 24.5
     return cut 
 
-def iso_cut(iso, band_1, mag_1, band_2, mag_2):
+def iso_cut(iso, band_1, mag_1, band_2, mag_2, iso_tol=0.1):
     seps = iso.separation(band_1, mag_1, band_2, mag_2)
-    return seps < 0.1
+    return seps < iso_tol
+
+def cut(iso, g, r, i, color_tol=0.2, iso_tol=0.1):
+    c_cut = color_cut(g, r, i, color_tol)
+    gr_cut = iso_cut(iso, 'g', g, 'r', r, iso_tol)
+    ri_cut = iso_cut(iso, 'r', r, 'i', i, iso_tol)
+    return c_cut & gr_cut & ri_cut
 
 a, b = -2.51758, 4.86721 # From abs_mag.py
 def mass_to_mag(stellar_mass):
@@ -48,7 +63,7 @@ class Isochrone(Bressan2012):
         delattr(self, 'mag') # I will be overwriting mag to a function
 
     def mag(self, band):
-        return self.data[band]
+        return self.data[band]+self.distance_modulus
 
     def simulate(self, abs_mag, distance_modulus=None, **kwargs):
         """
@@ -74,7 +89,7 @@ class Isochrone(Bressan2012):
         f_i = scipy.interpolate.interp1d(self.mass_init, self.mag('i'))
         mass_init_sample = self.imf.sample(n, np.min(self.mass_init), np.max(self.mass_init), **kwargs)
         mag_g_sample, mag_r_sample, mag_i_sample = f_g(mass_init_sample), f_r(mass_init_sample), f_i(mass_init_sample) 
-        return mag_g_sample + distance_modulus, mag_r_sample + distance_modulus, mag_i_sample + distance_modulus
+        return mag_g_sample, mag_r_sample, mag_i_sample
 
     def separation(self, band_1, mag_1, band_2, mag_2):
         """ 
@@ -92,8 +107,8 @@ class Isochrone(Bressan2012):
         --------
         sep : Minimum separation between test points and isochrone interpolation
         """
-        iso_mag_1 = self.mag(band_1) + self.distance_modulus
-        iso_mag_2 = self.mag(band_2) + self.distance_modulus
+        iso_mag_1 = self.mag(band_1)
+        iso_mag_2 = self.mag(band_2)
         
         def interp_iso(iso_mag_1,iso_mag_2,mag_1,mag_2):
             interp_1 = scipy.interpolate.interp1d(iso_mag_1,iso_mag_2,bounds_error=False)
@@ -261,7 +276,7 @@ class Isochrone(Bressan2012):
         bands = band_1+band_2
         sel = np.array(('g' in bands, 'r' in bands, 'i' in bands))
         mag_1, mag_2 = np.array((mag_g,mag_r,mag_i))[sel]
-        mag = mag_1 + self.distance_modulus
+        mag = mag_1
         color = mag_1 - mag_2
 
         # Find discontinuities in the color magnitude distributions

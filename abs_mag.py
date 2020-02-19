@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from patch_analysis import Isochrone
+from utils import Isochrone
 import percent
 import numpy as np
 import scipy

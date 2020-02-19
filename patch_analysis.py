@@ -65,11 +65,9 @@ def plot_isochrone(distance):
         plt.ylim(15, 26)
         plt.ylabel(band_1.lower())
 
-        cut_color = color_cut(stars[mag('g')], stars[mag('r')], stars[mag('i')])
-        cut_iso = iso_cut(iso, band_1, stars[mag(band_1)], band_2, stars[mag(band_2)])
-        cut_field = cut_color & cut_iso
-        plt.scatter(stars[~cut_field][mag(band_1)] - stars[~cut_field][mag(band_2)], stars[~cut_field][mag(band_1)], s=1, color='0.75', label='Excluded stars', zorder=0)
-        plt.scatter(stars[cut_field][mag(band_1)] - stars[cut_field][mag(band_2)], stars[cut_field][mag(band_1)], s=1, color='red', label='Included stars', zorder=5)
+        cut_stars = cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')])
+        plt.scatter(stars[~cut_stars][mag(band_1)] - stars[~cut_stars][mag(band_2)], stars[~cut_stars][mag(band_1)], s=1, color='0.75', label='Excluded stars', zorder=0)
+        plt.scatter(stars[cut_stars][mag(band_1)] - stars[cut_stars][mag(band_2)], stars[cut_stars][mag(band_1)], s=1, color='red', label='Included stars', zorder=5)
         plt.legend(markerscale=5.0)
 
         # Isochrone
@@ -87,26 +85,42 @@ def plot_isochrone(distance):
         plt.savefig(outdir + outname + '.png')
         plt.close()    
 
-def plot_color_color(distance):
+def plot_color_color(distance, tol=0.2):
+    iso = Isochrone(distance)
+    cut_stars = cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')], color_tol=tol)
+
     plt.figure()
     plt.xlabel('g - r')
     plt.xlim(-0.3, 1.8)
     plt.ylabel('r - i')
     plt.ylim(-0.2, 0.8)
 
-    cut_field = color_cut(stars[mag('g')], stars[mag('r')], stars[mag('i')])
-    plt.scatter(stars[~cut_field][mag('g')]-stars[~cut_field][mag('r')], stars[~cut_field][mag('r')]-stars[~cut_field][mag('i')], s=1, marker='.', color='0.75', label='Excluded stars', zorder=0)
-    plt.scatter(stars[cut_field][mag('g')]-stars[cut_field][mag('r')], stars[cut_field][mag('r')]-stars[cut_field][mag('i')], s=1, marker='.', color='red', label='Included stars', zorder=5)
+    plt.scatter(stars[~cut_stars][mag('g')]-stars[~cut_stars][mag('r')], stars[~cut_stars][mag('r')]-stars[~cut_stars][mag('i')], s=1, marker='.', color='0.75', label='Excluded stars', zorder=0)
+    plt.scatter(stars[cut_stars][mag('g')]-stars[cut_stars][mag('r')], stars[cut_stars][mag('r')]-stars[cut_stars][mag('i')], s=1, marker='.', color='red', label='Included stars', zorder=5)
     plt.legend(markerscale=5.0)
 
     # Isochrone
-    iso = Isochrone(distance)
-    color = iso.data['r']+iso.distance_modulus
+    color = iso.mag('r')
     maglim = 24.42
     cmap = plot_utils.shiftedColorMap('seismic_r', min(color), max(color), maglim)
-    plt.scatter(iso.data['g']-iso.data['r'], iso.data['r']-iso.data['i'], c=color, cmap=cmap, label='Isochrone', zorder=10, s=10)
+    plt.scatter(iso.mag('g')-iso.mag('r'), iso.mag('r')-iso.mag('i'), c=color, cmap=cmap, label='Isochrone', zorder=10, s=10)
     cbar = plt.colorbar(label='Isochrone r mag')
     cbar.ax.invert_yaxis()
+
+    # Plot box
+    # Parallels
+    x = np.linspace(-0.3,1.8,100)
+    m, b = 0.369485, -0.0055077
+    dx = tol*m
+    dy = tol/(np.cos(np.arctan(m)))
+    #plt.plot(x, f(x)
+    plt.plot(x, m*(x-dx)+b+dy, color='k', linestyle='--', linewidth=1, zorder=20)
+    plt.plot(x, m*(x+dx)+b-dy, color='k', linestyle='--', linewidth=1, zorder=20)
+    # Perpendiculars
+    #for x0 in min(x), max(x):
+    #    xvals = np.linspace(x0-dx, x0+dx, 100)
+    #    plt.plot(xvals, -1/m*(xvals-x0)+m*x0+b, color='k', zorder=20)
+    #xmin, xmax = min(x), max(x)
 
     title = '$D = {}$ kpc'.format(distance)
     plt.title(title)
