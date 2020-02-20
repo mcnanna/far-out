@@ -118,8 +118,8 @@ def plot_color_color(distance, tol=0.2):
     dx = tol*m
     dy = tol/(np.cos(np.arctan(m)))
     #plt.plot(x, f(x)
-    plt.plot(x, m*(x-dx)+b+dy, color='k', linestyle='--', linewidth=1, zorder=20)
-    plt.plot(x, m*(x+dx)+b-dy, color='k', linestyle='--', linewidth=1, zorder=20)
+    plt.plot(x, m*x+b+dy, color='k', linestyle='--', linewidth=1, zorder=20)
+    plt.plot(x, m*x+b-dy, color='k', linestyle='--', linewidth=1, zorder=20)
     # Perpendiculars
     #for x0 in min(x), max(x):
     #    xvals = np.linspace(x0-dx, x0+dx, 100)
@@ -324,7 +324,7 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
         big_ellipse = Ellipse(xy=(0,0), width=2*3*a_h, height=2*3*((1-ellipticity)*a_h), angle=90-position_angle, edgecolor='green', linewidth=1.5, linestyle='--', fill=False, label='$3 a_h$')
         ax.add_patch(ellipse)
         ax.add_patch(big_ellipse)
-        plt.legend((ellipse, big_ellipse), ("$a_h = {}'$".format(round(a_h*60, 1)), '$3 a_h$'))
+        plt.legend((ellipse, big_ellipse), ("$a_h = {}'$".format(round(a_h*60, 1)), '$3 a_h$'), loc='upper right')
 
         plt.xlim(-5*a_h, 5*a_h)
         plt.ylim(-5*a_h, 5*a_h)
@@ -348,14 +348,15 @@ def calc_sigma_trials(inputs, distance, abs_mag, r_physical, n_trials=10, percen
     sigmas = []
     for i in range(n_trials):
         sigmas.append(calc_sigma(inputs,distance,abs_mag,r_physical))
-        if percent_bar: percent.bar(i, n_trials-1)
+        if percent_bar: percent.bar(i+1, n_trials)
     return np.mean(sigmas), np.std(sigmas), sigmas
 
 
 def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix'):
     n_d = len(distances)
     n_m = len(abs_mags)
-    n_r = len(r_physicals)
+
+    n_c = len(r_physicals)
     inputs = load_data.Inputs()
 
     sigma_matrix = np.zeros((n_d, n_m, n_r))
@@ -371,7 +372,8 @@ def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix'
 
                 percent.bar(i*n_m*n_r + j*n_r + k + 1, n_d*n_m*n_r)
 
-    np.save(outname+'.npy', sigma_matrix) # Not used but I feel like I might as well make it
+
+    nc.save(outname+'.npy', sigma_matrix) # Not used but I feel like I might as well make it
 
     dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('sigma',float)]
     sigma_fits = np.array(sigma_fits, dtype=dtype)
@@ -528,7 +530,17 @@ def plot_matrix(fname, *args, **kwargs):
         
 
 def main():
-    pass
+    inputs = load_data.Inputs()
+    distances = [400, 800, 1200]
+    abs_mags = [-4, -6, -8]
+    r_physicals = [50, 100, 300]
+    counter = 0
+    for d in distances:
+        for m in abs_mags:
+            for r in r_physicals:
+                calc_sigma(inputs, d, m, r, plot=True)
+                counter += 1
+                percent.bar(counter, len(distances)*len(abs_mags)*len(r_physicals))
 
 
 if args.cc or args.iso:
