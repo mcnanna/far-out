@@ -293,7 +293,7 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
         plt.scatter(stars[~cut_field][mag('r')]-stars[~cut_field][mag('i')], stars[~cut_field][mag('r')], s=0.5, color='coral', label='Excluded field stars', zorder=0)
         plt.xlim(-0.3, 0.7)
         plt.xlabel('r - i')
-        plt.ylim(min(stars[cut_field][mag('r')])-1.0, max(stars[cut_field][mag('r')])+1.0)
+        plt.ylim(min(stars[cut_field][mag('r')])-0.5, max(stars[cut_field][mag('r')])+0.5)
         plt.ylabel('r')
         ax.invert_yaxis()
 
@@ -344,11 +344,12 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
     return sigma
 
 
-def calc_sigma_trials(inputs, distance, abs_mag, r_physical, n_trials=10):
+def calc_sigma_trials(inputs, distance, abs_mag, r_physical, n_trials=10, percent_bar=True):
     sigmas = []
-    for _ in range(n_trials):
+    for i in range(n_trials):
         sigmas.append(calc_sigma(inputs,distance,abs_mag,r_physical))
-    return sigmas
+        if percent_bar: percent.bar(i, n_trials-1)
+    return np.mean(sigmas), np.std(sigmas), sigmas
 
 
 def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix'):
@@ -425,7 +426,8 @@ def plot_matrix(fname, *args, **kwargs):
                 line = table[is_near(table[x], x_val) & is_near(table[y], y_val)]
                 mat[i,j] = line['sigma']
 
-        plt.figure(figsize=(len(x_vals)/2. + 3,len(y_vals)/2.))
+        #plt.figure(figsize=(len(x_vals)/2. + 3,len(y_vals)/2.))
+        plt.figure(figsize=(len(x_vals) + 8,len(y_vals)/1.5))
         plt.pcolormesh(mat.T, cmap=plot_utils.shiftedColorMap('seismic_r', np.min(mat), np.max(mat), 6))
         if np.max(mat) < 6:
             warnings.warn("No satellites above detectabiliy threshold of 6 for kwarg{} {} = {}".format('s' if len(kwargs)>1 else '', ', '.join(kwargs.keys()), ', '.join(map(str, kwargs.values()))))
@@ -475,7 +477,7 @@ def plot_matrix(fname, *args, **kwargs):
             plt.title(title)
             plt.colorbar(label='$\sigma$')
 
-        """
+        
         # Place known sats on plot:
         if 'distance' in kwargs:
             plt.sca(ax)
@@ -503,15 +505,24 @@ def plot_matrix(fname, *args, **kwargs):
             sat_ys = transform(dwarfs[translation[y]], y_vals, dic[y]['scale']=='log')
             plt.scatter(sat_xs, sat_ys, color='k')
 
+            down = ['Boo II', 'Pic I', 'Ret II', 'Phe II', 'Leo V', 'Hyi I', 'UMa II']
+            left = ['Phe II', 'Gru II', 'Psc II', 'Com', 'Sex', 'UMa II', 'Pic II']
             for i, d in enumerate(dwarfs):
                 xy = (sat_xs[i], sat_ys[i])
-                xytext = [2,2]
-                kwargs = dict(xytext=xytext, ha='left', va='bottom')
-                plt.annotate(d['abbreviation'], xy, **kwargs)
-        """
-        #TODO: Remove these #s!!!
+                xytext = [3,3]
+                ha = 'left'
+                va = 'bottom'
+                if d['abbreviation'] in down:
+                    va = 'top'
+                    xytext[1] = -3
+                if d['abbreviation'] in left:
+                    ha = 'right'
+                    xytext[0] = -3
+                plt.annotate(d['abbreviation'], xy, textcoords='offset points', xytext=xytext, ha=ha, va=va, 
+                             bbox = dict(facecolor='white', boxstyle='round,pad=0.2'))
+
         outname = '{}_vs_{}__'.format(x, y) + '_'.join(['{}={}'.format(key, round(kwargs[key],3)) for key in kwargs])
-        plt.savefig('mat_plots/2D_' + outname + '.png')
+        plt.savefig('mat_plots/2D_' + outname + '.png', bbox_inches='tight')
         plt.close()
 
         

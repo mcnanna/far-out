@@ -28,7 +28,7 @@ def color_cut(g, r, i, color_tol=0.2):
     y = r-i
     cut = distance(x, y) < color_tol
     #cut = (g - r > 0.4) & (g - r < 1.1) & (r - i < 0.5)
-    cut &= r < 24.5
+    cut &= r < 24.25
     cut &= i < 24.5
     return cut 
 
