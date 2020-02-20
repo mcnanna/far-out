@@ -2,6 +2,8 @@
 
 import argparse
 import subprocess
+import warnings
+
 import astropy.io.fits as fits
 import matplotlib
 import matplotlib.pyplot as plt
@@ -9,17 +11,19 @@ from matplotlib.patches import Ellipse
 import numpy as np
 import healpy as hp
 import scipy
+from scipy.stats import poisson, norm
+
 import ugali.analysis.source
 import ugali.analysis.kernel
 import ugali.analysis.results
 import ugali.utils.healpix
 import ugali.utils.projector
+
 import percent
 import plot_utils
-from scipy.stats import poisson, norm
 import load_data
-import warnings
-from utils import *
+import utils
+from isochrone import Isochrone
 
 matplotlib.rcParams['xtick.labelsize'] = 12
 matplotlib.rcParams['ytick.labelsize'] = 12
@@ -65,7 +69,7 @@ def plot_isochrone(distance):
         plt.ylim(15, 26)
         plt.ylabel(band_1.lower())
 
-        cut_stars = cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')])
+        cut_stars = utils.cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')], stars[magerr('g')], stars[magerr('r')], stars[magerr('i')])
         plt.scatter(stars[~cut_stars][mag(band_1)] - stars[~cut_stars][mag(band_2)], stars[~cut_stars][mag(band_1)], s=1, color='0.75', label='Excluded stars', zorder=0)
         plt.scatter(stars[cut_stars][mag(band_1)] - stars[cut_stars][mag(band_2)], stars[cut_stars][mag(band_1)], s=1, color='red', label='Included stars', zorder=5)
         plt.legend(markerscale=5.0)
@@ -87,7 +91,7 @@ def plot_isochrone(distance):
 
 def plot_color_color(distance, tol=0.2):
     iso = Isochrone(distance)
-    cut_stars = cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')], color_tol=tol)
+    cut_stars = utils.cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')], stars[magerr('g')], stars[magerr('r')], stars[magerr('i')], color_tol=tol)
 
     plt.figure()
     plt.xlabel('g - r')
@@ -192,12 +196,12 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
     mag_r_error = 0.01 + 10**(inputs.log_photo_error((mag_r + mag_extinction_r) - maglim_r))
     mag_i_error = 0.01 + 10**(inputs.log_photo_error((mag_i + mag_extinction_i) - maglim_i))
 
-    flux_g_meas = magToFlux(mag_g) + np.random.normal(scale=getFluxError(mag_g, mag_g_error))
-    mag_g_meas = np.where(flux_g_meas > 0., fluxToMag(flux_g_meas), 99.)
-    flux_r_meas = magToFlux(mag_r) + np.random.normal(scale=getFluxError(mag_r, mag_r_error))
-    mag_r_meas = np.where(flux_r_meas > 0., fluxToMag(flux_r_meas), 99.)
-    flux_i_meas = magToFlux(mag_i) + np.random.normal(scale=getFluxError(mag_i, mag_i_error))
-    mag_i_meas = np.where(flux_i_meas > 0., fluxToMag(flux_i_meas), 99.)
+    flux_g_meas = utils.magToFlux(mag_g) + np.random.normal(scale=utils.getFluxError(mag_g, mag_g_error))
+    mag_g_meas = np.where(flux_g_meas > 0., utils.fluxToMag(flux_g_meas), 99.)
+    flux_r_meas = utils.magToFlux(mag_r) + np.random.normal(scale=utils.getFluxError(mag_r, mag_r_error))
+    mag_r_meas = np.where(flux_r_meas > 0., utils.fluxToMag(flux_r_meas), 99.)
+    flux_i_meas = utils.magToFlux(mag_i) + np.random.normal(scale=utils.getFluxError(mag_i, mag_i_error))
+    mag_i_meas = np.where(flux_i_meas > 0., utils.fluxToMag(flux_i_meas), 99.)
 
     # Includes penalty for interstellar extinction and also include variations in depth
     # Use r band:
@@ -212,21 +216,34 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
     r_physical = distance * np.tan(np.radians(r_h)) * 1000. # Azimuthally averaged half-light radius, pc
     surface_brightness_realized = ugali.analysis.results.surfaceBrightness(abs_mag_realized, r_physical, distance) # Average within azimuthally averaged half-light radius
 
-    return lon[cut_detect], lat[cut_detect], mag_g_meas[cut_detect], mag_r_meas[cut_detect], mag_i_meas[cut_detect], a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended
+    # Turn star info into an array
+    sat_stars = np.array([lon, lat, mag_g_meas, mag_r_meas, mag_i_meas, mag_g_error, mag_r_error, mag_i_error]).T
+    sat_stars = sat_stars[cut_detect]
+    sat_stars = list(map(tuple, sat_stars)) # This makes setting the dtype work
+    dtype = [('lon',float),('lat',float),('mag_g',float),('mag_r',float),('mag_i',float),('mag_g_err',float),('mag_r_err',float),('mag_i_err',float)]
+    sat_stars = np.array(sat_stars, dtype=dtype)
+
+    return sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended
 
 
 def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
-    lon, lat, mag_g, mag_r, mag_i, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
+    sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
+    
+    lon = sat_stars['lon']
+    lat = sat_stars['lat']
+    mag_g = sat_stars['mag_g']
+    mag_r = sat_stars['mag_r']
+    mag_i = sat_stars['mag_i']
+    mag_g_err = sat_stars['mag_g_err']
+    mag_r_err = sat_stars['mag_r_err']
+    mag_i_err = sat_stars['mag_i_err']
 
     iso = Isochrone(distance)
-    cut_sat  = iso_cut(iso, 'g', mag_g, 'r', mag_r)
-    cut_sat &= iso_cut(iso ,'r', mag_r, 'i', mag_i)
-    cut_sat &= color_cut(mag_g, mag_r, mag_i)
+    cut_sat = utils.cut(iso, mag_g, mag_r, mag_i, mag_g_err, mag_r_err, mag_i_err)
 
     # Apply isochrone and color cut to field stars
-    cut_field  = iso_cut(iso, 'g', stars[mag('g')], 'r', stars[mag('r')])
-    cut_field &= iso_cut(iso, 'r', stars[mag('r')], 'i', stars[mag('i')])
-    cut_field &= color_cut(stars[mag('g')], stars[mag('r')], stars[mag('i')])
+
+    cut_field = utils.cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')], stars[magerr('g')], stars[magerr('r')], stars[magerr('i')])
     
     ### Significance
     theta = 90-position_angle
@@ -325,6 +342,13 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
 
     #params = {'abs_mag_realized':abs_mag_realized, 'surface_brightness_realized':surface_brightness_realized} # Could add more later if needed
     return sigma
+
+
+def calc_sigma_trials(inputs, distance, abs_mag, r_physical, n_trials=10):
+    sigmas = []
+    for _ in range(n_trials):
+        sigmas.append(calc_sigma(inputs,distance,abs_mag,r_physical))
+    return sigmas
 
 
 def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix'):
@@ -426,12 +450,12 @@ def plot_matrix(fname, *args, **kwargs):
 
         # Insert stellar mass ticks/label in appropriate place
         if 'abs_mag' in kwargs:
-            stellar_mass = mag_to_mass(kwargs['abs_mag']) 
+            stellar_mass = utils.mag_to_mass(kwargs['abs_mag']) 
             title += "; {} = {} {}".format(dic['stellar_mass']['label'], dic['stellar_mass']['conversion'](stellar_mass), dic['stellar_mass']['unit'])
             plt.title(title)
         elif 'abs_mag' in args:
             abs_mags = np.array( sorted(set(table['abs_mag']), reverse=True) )
-            stellar_masses = mag_to_mass(abs_mags)
+            stellar_masses = utils.mag_to_mass(abs_mags)
             if x == 'abs_mag':
                 twin_ax = ax.twiny()
                 twin_ax.set_xticks(list(xticks) + [xticks[-1]+0.5]) # Have to add an extra on the end to make it scale right
@@ -451,6 +475,7 @@ def plot_matrix(fname, *args, **kwargs):
             plt.title(title)
             plt.colorbar(label='$\sigma$')
 
+        """
         # Place known sats on plot:
         if 'distance' in kwargs:
             plt.sca(ax)
@@ -483,11 +508,11 @@ def plot_matrix(fname, *args, **kwargs):
                 xytext = [2,2]
                 kwargs = dict(xytext=xytext, ha='left', va='bottom')
                 plt.annotate(d['abbreviation'], xy, **kwargs)
-        
+        """
         #TODO: Remove these #s!!!
-        #outname = '{}_vs_{}__'.format(x, y) + '_'.join(['{}={}'.format(key, round(kwargs[key],3)) for key in kwargs])
-        #plt.savefig('mat_plots/2D_' + outname + '.png')
-        #plt.close()
+        outname = '{}_vs_{}__'.format(x, y) + '_'.join(['{}={}'.format(key, round(kwargs[key],3)) for key in kwargs])
+        plt.savefig('mat_plots/2D_' + outname + '.png')
+        plt.close()
 
         
 
