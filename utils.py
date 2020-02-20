@@ -140,8 +140,8 @@ class Isochrone(Bressan2012):
 
             hb_dmag_1,hb_dmag_2 = interp_iso(hb_mag_1,hb_mag_2,mag_1,mag_2)
 
-            dmag_1 = np.nanmin([dmag_1,hb_dmag_1],axis=0)
-            dmag_2 = np.nanmin([dmag_2,hb_dmag_2],axis=0)
+            dmag_1 = np.nanmin([np.abs(dmag_1),np.abs(hb_dmag_1)],axis=0)
+            dmag_2 = np.nanmin([np.abs(dmag_2),np.abs(hb_dmag_2)],axis=0)
 
         #return dmag_1,dmag_2
         return np.sqrt(dmag_1**2 + dmag_2**2)

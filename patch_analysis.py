@@ -462,6 +462,7 @@ def plot_matrix(fname, *args, **kwargs):
             cut &= dwarfs[translation[x]] < xmax
             cut &= ymin < dwarfs[translation[y]]
             cut &= dwarfs[translation[y]] < ymax
+            #cut &= np.array(['des' in survey for survey in dwarfs['survey']])
             dwarfs = dwarfs[cut]
 
             def transform(value, axis_vals, log=False):
@@ -476,6 +477,12 @@ def plot_matrix(fname, *args, **kwargs):
             sat_xs = transform(dwarfs[translation[x]], x_vals, dic[x]['scale']=='log')
             sat_ys = transform(dwarfs[translation[y]], y_vals, dic[y]['scale']=='log')
             plt.scatter(sat_xs, sat_ys, color='k')
+
+            for i, d in enumerate(dwarfs):
+                xy = (sat_xs[i], sat_ys[i])
+                xytext = [2,2]
+                kwargs = dict(xytext=xytext, ha='left', va='bottom')
+                plt.annotate(d['abbreviation'], xy, **kwargs)
         
         #TODO: Remove these #s!!!
         #outname = '{}_vs_{}__'.format(x, y) + '_'.join(['{}={}'.format(key, round(kwargs[key],3)) for key in kwargs])
@@ -502,10 +509,10 @@ if args.scan or args.plots:
     distances = np.arange(400, 2200, 200)
     abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
     log_r_physical_pcs = np.arange(1, 3.2, 0.2)
-    r_physicals = 10**log_r_physical_pc
+    r_physicals = 10**log_r_physical_pcs
 
     if args.scan:
-        create_sigma_matrix(distances, abs_mags, r_physical_, outname='sigma_matrix')
+        create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix')
 
     if args.plots:
         subprocess.call('mkdir -p {}'.format('mat_plots').split()) # Don't want to have this call happen for each and every plot
