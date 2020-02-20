@@ -193,35 +193,35 @@ class Isochrone(Bressan2012):
         return ax
 
 
-    def color_differences(band1, band2, mag1, mag2):
+    def color_differences(self, band1, band2, mag1, mag2):
         # Divide apart rbg/main sequence and the horiztonal branch
         rgb_sel = (self.stage < self.hb_stage)
-        hb_sel = ~rhb_sel
+        hb_sel = ~rgb_sel
 
         color_diff = np.tile(999., len(mag1))
         for sel in rgb_sel, hb_sel:
             if not np.any(sel):
                 continue
 
-            iso_mag_1 = sel.mag(band1)[sel][::-1]
-            iso_mag_2 = sel.mag(band2)[sel][::-1]
+            iso_mag_1 = self.mag(band1)[sel][::-1]
+            iso_mag_2 = self.mag(band2)[sel][::-1]
             # Not positive why they're reversed, maybe it makes the interpolation better
     
             # Cut one way...
             f_isochrone = scipy.interpolate.interp1d(iso_mag_2, iso_mag_1-iso_mag_2, bounds_error=False, fill_value=999.)
-            color_diff_2 = np.fabs((mag1-mag2) - f_self(mag2))
+            color_diff_2 = np.fabs((mag1-mag2) - f_isochrone(mag2))
 
             #...and now the other
             f_isochrone = scipy.interpolate.interp1d(iso_mag_1, iso_mag_1-iso_mag_2, bounds_error=False, fill_value=999.)
-            color_diff_1 = np.fabs((mag1-mag2) - f_self(mag1))
+            color_diff_1 = np.fabs((mag1-mag2) - f_isochrone(mag1))
 
             color_diff = np.min([color_diff, color_diff_1, color_diff_2], axis=0)
 
         return color_diff
 
-    def cut_separation(band1, band2, mag1, mag2, mag1err, mag2err, radius=0.1):
-        diffs = color_differences(band1, band2, mag1, mag2)
-        cut = = (diffs < np.sqrt(radius**2 + mag1err**2 + mag2err**2))
+    def cut_separation(self, band1, band2, mag1, mag2, mag1err, mag2err, radius=0.1):
+        diffs = self.color_differences(band1, band2, mag1, mag2)
+        cut = (diffs < np.sqrt(radius**2 + mag1err**2 + mag2err**2))
         return cut
 
 
