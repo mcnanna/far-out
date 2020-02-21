@@ -226,7 +226,7 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
     return sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended
 
 
-def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
+def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False, outname=None):
     sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
     
     lon = sat_stars['lon']
@@ -334,7 +334,8 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False):
         handles, labels = axes[0][0].get_legend_handles_labels()
         fig.legend(handles, labels, markerscale=2.0)
 
-        outname = 'D={}_Mv={}_r={}'.format(int(distance), round(abs_mag,1), int(round(r_physical,0)))
+        if outname is None:
+            outname = 'D={}_Mv={}_r={}'.format(int(distance), round(abs_mag,1), int(round(r_physical,0)))
         outdir = 'sat_plots/'
         subprocess.call('mkdir -p {}'.format(outdir).split())
         plt.savefig(outdir + outname + '.png')
@@ -355,8 +356,7 @@ def calc_sigma_trials(inputs, distance, abs_mag, r_physical, n_trials=10, percen
 def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix'):
     n_d = len(distances)
     n_m = len(abs_mags)
-
-    n_c = len(r_physicals)
+    n_r = len(r_physicals)
     inputs = load_data.Inputs()
 
     sigma_matrix = np.zeros((n_d, n_m, n_r))
@@ -373,7 +373,7 @@ def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix'
                 percent.bar(i*n_m*n_r + j*n_r + k + 1, n_d*n_m*n_r)
 
 
-    nc.save(outname+'.npy', sigma_matrix) # Not used but I feel like I might as well make it
+    np.save(outname+'.npy', sigma_matrix) # Not used but I feel like I might as well make it
 
     dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('sigma',float)]
     sigma_fits = np.array(sigma_fits, dtype=dtype)
@@ -528,6 +528,14 @@ def plot_matrix(fname, *args, **kwargs):
         plt.close()
 
         
+def sim_known_sats():
+    inputs = load_data.Inputs()
+    dwarfs = load_data.Satellites().dwarfs
+    distances = np.arange(400, 2200, 200)
+    for dwarf in dwarfs:
+        distance = dwarf['distance_kpc']
+        calc_sigma(inputs, dwarf['distance_kpc'], dwarf['m_v'], dwarf['r_physical'], plot=True)
+
 
 def main():
     inputs = load_data.Inputs()
