@@ -7,7 +7,7 @@ import warnings
 import astropy.io.fits as fits
 import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
+from matplotlib.patches import Ellipse, Circle
 import numpy as np
 import healpy as hp
 import scipy
@@ -30,7 +30,7 @@ matplotlib.rcParams['ytick.labelsize'] = 12
 matplotlib.rcParams['text.usetex'] = True
 matplotlib.rcParams['font.family'] = 'serif'
 plt.ion()
-
+NSIDE = 4096
 
 p = argparse.ArgumentParser()
 # Quick plots
@@ -45,6 +45,7 @@ p.add_argument('-m', '--abs_mag', type=float, help='mag')
 p.add_argument('--scan', action='store_true')
 p.add_argument('--plots', action='store_true')
 # Extra
+p.add_argument('--known', action='store_true')
 p.add_argument('--main', action='store_true')
 args = p.parse_args()
 
@@ -162,7 +163,7 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
         print('Too extended: a_h = %.2f'%(a_h))
         a_h = 1.0
         flag_too_extended = True
-        raise Exception('flag_too_extended')
+        # raise Exception('flag_too_extended')
     ker.setp('extension', value=a_h, bounds=[0.0,1.0])
     s.set_kernel(ker)
     
@@ -226,7 +227,10 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
     return sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended
 
 
-def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False, outname=None):
+def calc_sigma(inputs, distance, abs_mag, r_physical, aperature=1, aperature_type='factor', plot=False, outname=None):
+    """ If aperature_type is factor, the ROI is a cirle with r=aperature*a_h.
+    If aperature_type is 'radius', the ROI is a circle with r=aperature (in degrees)"""
+
     sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
     
     lon = sat_stars['lon']
@@ -246,26 +250,59 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False, outname=None):
     cut_field = utils.cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')], stars[magerr('g')], stars[magerr('r')], stars[magerr('i')])
     
     ### Significance
-    theta = 90-position_angle
-    a = a_h
-    b = a*(1-ellipticity)
+    # Backround density
+    field_pix = ugali.utils.healpix.angToPix(NSIDE, stars[cut_field]['RA'], stars[cut_field]['DEC'])
+    sat_pix = ugali.utils.healpix.angToPix(NSIDE, lon[cut_sat], lat[cut_sat])
+    # Annulus 
+    inner_r, outer_r = 0.05, 0.10 # Degrees
+    inner_pix = ugali.utils.healpix.angToDisc(NSIDE, center_ra, center_dec, inner_r)
+    outer_pix = ugali.utils.healpix.angToDisc(NSIDE, center_ra, center_dec, outer_r)
+    field_annulus = ~np.isin(field_pix, inner_pix) & np.isin(field_pix, outer_pix)
+    sat_annulus = ~np.isin(sat_pix, inner_pix) & np.isin(sat_pix, outer_pix)
 
-    sat_in_ellipse = ((lon[cut_sat]-center_ra)*np.cos(theta) + (lat[cut_sat]-center_dec)*np.sin(theta))**2/a**2 + \
-                     ((lon[cut_sat]-center_ra)*np.sin(theta) - (lat[cut_sat]-center_dec)*np.cos(theta))**2/b**2 <= 1
-    field_ras = stars[cut_field]['RA']
-    field_decs = stars[cut_field]['DEC']
-    field_in_ellipse = ((field_ras-center_ra)*np.cos(theta) + (field_decs-center_dec)*np.sin(theta))**2/a**2 + \
-                       ((field_ras-center_ra)*np.sin(theta) - (field_decs-center_dec)*np.cos(theta))**2/b**2 <= 1
-    signal = sum(sat_in_ellipse) + sum(field_in_ellipse)
+    rho_field = (sum(field_annulus) + sum(sat_annulus))/(np.pi*outer_r**2 - np.pi*inner_r**2)
+    #true_rho_field = sum(cut_field)/1.0
+    #true_background = true_rho_field * np.pi*a*b
+    
+    # Signal
+    ## Ellpise with known position angle and ellipticity, a = a_h
+    #aperature = 'ellipse'
+    #theta = 90-position_angle
+    #a = a_h
+    #b = a*(1-ellipticity)
 
-    rho_field = len(stars[cut_field])/1.0
-    background = rho_field * np.pi*a*b
+    #sat_in_ellipse = ((lon[cut_sat]-center_ra)*np.cos(theta) + (lat[cut_sat]-center_dec)*np.sin(theta))**2/a**2 + \
+    #                 ((lon[cut_sat]-center_ra)*np.sin(theta) - (lat[cut_sat]-center_dec)*np.cos(theta))**2/b**2 <= 1
+    #field_ras = stars[cut_field]['RA']
+    #field_decs = stars[cut_field]['DEC']
+    #field_in_ellipse = ((field_ras-center_ra)*np.cos(theta) + (field_decs-center_dec)*np.sin(theta))**2/a**2 + \
+    #                   ((field_ras-center_ra)*np.sin(theta) - (field_decs-center_dec)*np.cos(theta))**2/b**2 <= 1
+    #signal = sum(sat_in_ellipse) + sum(field_in_ellipse)
+    #background = rho_field * np.pi*a*b
+
+    # Circle of radius a
+    # Avoding angToDisc since resoltion may be a problem
+    roi = 'circle'
+    if aperature_type == 'factor':
+        a = aperature*a_h
+    elif aperature_type == 'radius':
+        a = aperature
+    else:
+        raise Exception('bad aperaturo')
+    field_in_circle = ((stars[cut_field]['RA']-center_ra)**2 + (stars[cut_field]['DEC']-center_dec)**2) < a**2
+    sat_in_circle = ((lon[cut_sat]-center_ra)**2 + (lat[cut_sat]-center_dec)) < a**2
+    signal = sum(field_in_circle) + sum(sat_in_circle)
+    background = rho_field * np.pi*a**2
 
     sigma = min(norm.isf(poisson.sf(signal, background)), 38.0)
 
     if plot:
         fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12, 9))
-        title = '$D = {}$ kpc, $M_V = {}$ $M_\odot$, $r_{{1/2}} = {}$ pc\n$\sigma = {}$'.format(int(round(distance,0)), round(abs_mag_realized, 1), int(round(r_physical, 0)), round(sigma, 1))
+        title = '$D = {}$ kpc, $M_V = {}$ mag, $r_{{1/2}} = {}$ pc\n$\sigma = {}$'.format(int(round(distance,0)), round(abs_mag_realized, 1), int(round(r_physical, 0)), round(sigma, 1))
+        if flag_too_extended:
+            title += ' ${\\rm (FLAG TOO EXTENDED)}$'
+            # Had to add the $$ because tex was being weird
+
         fig.suptitle(title)
 
         ### CMD plots
@@ -315,16 +352,23 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False, outname=None):
         ax = axes[1][1]
         plt.sca(ax)
 
-        plt.scatter(lon[cut_sat]-center_ra, lat[cut_sat]-center_dec, s=6, color='black', label='Included satellite stars')
-        plt.scatter(lon[~cut_sat]-center_ra, lat[~cut_sat]-center_dec, s=2, color='0.3', label='Excluded satellite stars')
-        plt.scatter(stars[cut_field]['RA']-center_ra, stars[cut_field]['DEC']-center_dec, s=4, color='red', label='Included field stars')
-        plt.scatter(stars[~cut_field]['RA']-center_ra, stars[~cut_field]['DEC']-center_dec, s=0.5, color='coral', label='Excluded field stars')
+        plt.scatter(lon[cut_sat]-center_ra, lat[cut_sat]-center_dec, s=6, color='black', label='Included satellite stars', zorder=5)
+        plt.scatter(lon[~cut_sat]-center_ra, lat[~cut_sat]-center_dec, s=2, color='0.3', label='Excluded satellite stars', zorder=4)
+        plt.scatter(stars[cut_field]['RA']-center_ra, stars[cut_field]['DEC']-center_dec, s=4, color='red', label='Included field stars', zorder=3)
+        plt.scatter(stars[~cut_field]['RA']-center_ra, stars[~cut_field]['DEC']-center_dec, s=0.5, color='coral', label='Excluded field stars', zorder=2)
 
-        ellipse = Ellipse(xy=(0,0), width=2*a_h, height=2*(1-ellipticity)*a_h, angle=90-position_angle, edgecolor='green', linewidth=1.5, fill=False, label="$a_h = {}'$".format(round(a_h*60, 1)))
-        big_ellipse = Ellipse(xy=(0,0), width=2*3*a_h, height=2*3*((1-ellipticity)*a_h), angle=90-position_angle, edgecolor='green', linewidth=1.5, linestyle='--', fill=False, label='$3 a_h$')
-        ax.add_patch(ellipse)
-        ax.add_patch(big_ellipse)
-        plt.legend((ellipse, big_ellipse), ("$a_h = {}'$".format(round(a_h*60, 1)), '$3 a_h$'), loc='upper right')
+        half_light_ellipse = Ellipse(xy=(0,0), width=2*a_h, height=2*(1-ellipticity)*a_h, angle=90-position_angle, edgecolor='green', linewidth=1.5, linestyle='--', fill=False, zorder=10)
+        half_light_ellipse_label = "$a_h = {}'$".format(round(a_h*60, 1))
+        if roi == 'ellipse':
+            aperature_patch = Ellipse(xy=(0,0), width=2*a, height=2*((1-ellipticity)*a), angle=90-position_angle, edgecolor='green', linewidth=1.5, fill=False, zorder=10)
+            aperature_label = 'Aperature ($a = {}$)'.format(round(a*60, 1))
+        elif roi == 'circle':
+            aperature_patch = Circle(xy=(0,0), radius=a, edgecolor='green', linewidth=1.5, fill=False, zorder=10)
+            aperature_label = 'Aperature ($r = {}$)'.format(round(a*60, 1))
+        ax.add_patch(half_light_ellipse)
+        ax.add_patch(aperature_patch)
+        #plt.legend((half_light_ellipse, aperature_patch), ("$a_h = {}'$".format(round(a_h*60, 1)), '$3 a_h$'), loc='upper right')
+        plt.legend((half_light_ellipse, aperature_patch), (half_light_ellipse_label, aperature_label), loc='upper right')
 
         plt.xlim(-5*a_h, 5*a_h)
         plt.ylim(-5*a_h, 5*a_h)
@@ -345,37 +389,39 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, plot=False, outname=None):
     return sigma
 
 
-def calc_sigma_trials(inputs, distance, abs_mag, r_physical, n_trials=10, percent_bar=True):
+def calc_sigma_trials(inputs, distance, abs_mag, r_physical, aperature=1, aperature_type='factor', n_trials=10, percent_bar=True):
     sigmas = []
     for i in range(n_trials):
-        sigmas.append(calc_sigma(inputs,distance,abs_mag,r_physical))
+        sigmas.append(calc_sigma(inputs,distance,abs_mag,r_physical,aperature,aperature_type))
         if percent_bar: percent.bar(i+1, n_trials)
     return np.mean(sigmas), np.std(sigmas), sigmas
 
 
-def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix'):
+def create_sigma_matrix(distances, abs_mags, r_physicals, aperatures=[1], aperature_type='factor', outname='sigma_matrix'):
     n_d = len(distances)
     n_m = len(abs_mags)
     n_r = len(r_physicals)
+    n_a = len(aperatures)
     inputs = load_data.Inputs()
 
-    sigma_matrix = np.zeros((n_d, n_m, n_r))
+    #sigma_matrix = np.zeros((n_d, n_m, n_r))
     sigma_fits = []
+    counter=0
     for i in range(n_d):
         for j in range(n_m):
             for k in range(n_r):
-                d, m, r = distances[i], abs_mags[j], r_physicals[k]
-                sigma = calc_sigma(inputs, d, m, r, plot=False)
+                for l in range(n_a):
+                    d, m, r, a = distances[i], abs_mags[j], r_physicals[k], aperatures[l]
+                    sigma = calc_sigma(inputs, d, m, r, a, aperature_type=aperature_type, plot=False)
 
-                sigma_matrix[i,j,k] = sigma
-                sigma_fits.append((d, m, r, sigma))
+                    #sigma_matrix[i,j,k] = sigma
+                    sigma_fits.append((d, m, r, a, sigma))
 
-                percent.bar(i*n_m*n_r + j*n_r + k + 1, n_d*n_m*n_r)
+                    counter += 1
+                    percent.bar(counter, n_d*n_m*n_r*n_a)
 
-
-    np.save(outname+'.npy', sigma_matrix) # Not used but I feel like I might as well make it
-
-    dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('sigma',float)]
+    #np.save(outname+'.npy', sigma_matrix) # Not used but I feel like I might as well make it
+    dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('aperature',float), ('sigma',float)]
     sigma_fits = np.array(sigma_fits, dtype=dtype)
     fits.writeto(outname+'.fits', sigma_fits, overwrite=True)
 
@@ -456,6 +502,7 @@ def plot_matrix(fname, *args, **kwargs):
         if 'abs_mag' in kwargs:
             stellar_mass = utils.mag_to_mass(kwargs['abs_mag']) 
             title += "; {} = {} {}".format(dic['stellar_mass']['label'], dic['stellar_mass']['conversion'](stellar_mass), dic['stellar_mass']['unit'])
+            plt.colorbar(label='$\sigma$')
             plt.title(title)
         elif 'abs_mag' in args:
             abs_mags = np.array( sorted(set(table['abs_mag']), reverse=True) )
@@ -531,10 +578,29 @@ def plot_matrix(fname, *args, **kwargs):
 def sim_known_sats():
     inputs = load_data.Inputs()
     dwarfs = load_data.Satellites().dwarfs
+    cut = dwarfs['m_v'] > -10
+    # Cuts out LMC, SMC, Fornax, Sculptor, Sagitarrius, Leo I
+    dwarfs = dwarfs[cut]
+
+    subprocess.call('mkdir -p sat_plots/known_sats'.split())
     distances = np.arange(400, 2200, 200)
-    for dwarf in dwarfs:
-        distance = dwarf['distance_kpc']
-        calc_sigma(inputs, dwarf['distance_kpc'], dwarf['m_v'], dwarf['r_physical'], plot=True)
+    for i, dwarf in enumerate(dwarfs):
+        name = dwarf['name'].replace(' ', '_')
+        abbr = dwarf['abbreviation'].replace(' ','')
+        abs_mag = dwarf['m_v']
+        r_physical = dwarf['r_physical']
+        subprocess.call('mkdir -p sat_plots/known_sats/{}'.format(name).split())
+
+        outname = 'known_sats/{}/{}_D={}'.format(name, abbr, int(round(dwarf['distance_kpc'], 0)))
+        calc_sigma(inputs, dwarf['distance_kpc'], abs_mag, r_physical, plot=True, outname=outname)
+        for j, distance in enumerate(distances):
+            outname = 'known_sats/{}/{}_D={}'.format(name, abbr, distance)
+            sigma = calc_sigma(inputs, distance, abs_mag, r_physical, plot=True, outname=outname)
+            percent.bar(i*(len(distances)+1)+j+1, len(dwarfs)*(len(distances)+1))
+            if sigma < 4:
+                # Don' waste time with farther distances
+                break
+
 
 
 def main():
@@ -563,12 +629,17 @@ if args.sim:
     calc_sigma(inputs, args.distance, args.abs_mag, args.r_physical, plot=True)
 if args.scan or args.plots:
     distances = np.arange(400, 2200, 200)
-    abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
-    log_r_physical_pcs = np.arange(1, 3.2, 0.2)
+    #abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
+    abs_mags = np.array([-6.5])
+    #log_r_physical_pcs = np.arange(1, 3.2, 0.2)
+    log_r_physical_pcs = np.array([1])
     r_physicals = 10**log_r_physical_pcs
+    aperatures = np.arange(0.6, 3.2, 0.2)
+    aperature_type='factor'
+    
 
     if args.scan:
-        create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix')
+        create_sigma_matrix(distances, abs_mags, r_physicals, aperatures, aperature_type, outname='sigma_matrix_{}'.format(aperature_type))
 
     if args.plots:
         subprocess.call('mkdir -p {}'.format('mat_plots').split()) # Don't want to have this call happen for each and every plot
@@ -582,6 +653,8 @@ if args.scan or args.plots:
         for m in abs_mags:
             plot_matrix('sigma_matrix', 'distance', 'r_physical', abs_mag=m)
 
+if args.known:
+    sim_known_sats()
 if args.main:
     main()
 
