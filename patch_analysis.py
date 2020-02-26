@@ -389,7 +389,7 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, aperature=1, aperature_typ
     return sigma
 
 
-def calc_sigma_trials(inputs, distance, abs_mag, r_physical, aperature=1, aperature_type='factor', n_trials=10, percent_bar=True):
+def calc_sigma_trials(inputs, distance, abs_mag, r_physical, aperature=1, aperature_type='factor', n_trials=10, percent_bar=False):
     sigmas = []
     for i in range(n_trials):
         sigmas.append(calc_sigma(inputs,distance,abs_mag,r_physical,aperature,aperature_type))
@@ -397,7 +397,7 @@ def calc_sigma_trials(inputs, distance, abs_mag, r_physical, aperature=1, aperat
     return np.mean(sigmas), np.std(sigmas), sigmas
 
 
-def create_sigma_matrix(distances, abs_mags, r_physicals, aperatures=[1], aperature_type='factor', outname='sigma_matrix'):
+def create_sigma_matrix(distances, abs_mags, r_physicals, aperatures=[1], aperature_type='factor', outname='sigma_matrix', n_trials=1):
     n_d = len(distances)
     n_m = len(abs_mags)
     n_r = len(r_physicals)
@@ -412,7 +412,10 @@ def create_sigma_matrix(distances, abs_mags, r_physicals, aperatures=[1], aperat
             for k in range(n_r):
                 for l in range(n_a):
                     d, m, r, a = distances[i], abs_mags[j], r_physicals[k], aperatures[l]
-                    sigma = calc_sigma(inputs, d, m, r, a, aperature_type=aperature_type, plot=False)
+                    if n_trials > 1:
+                        sigma = calc_sigma_trials(inputs, d, m, r, a, aperature_type, n_trials)[0]
+                    else:
+                        sigma = calc_sigma(inputs, d, m, r, a, aperature_type, plot=False)
 
                     #sigma_matrix[i,j,k] = sigma
                     sigma_fits.append((d, m, r, a, sigma))
@@ -428,18 +431,24 @@ def create_sigma_matrix(distances, abs_mags, r_physicals, aperatures=[1], aperat
 
 
 def plot_matrix(fname, *args, **kwargs):
+    if 'factor' in fname:
+        aperature_type = 'factor'
+    elif 'radius' in fname:
+        aperature_type = 'radius'
+
     dic = {'distance': {'label':'$D$', 'conversion': lambda d:int(d), 'unit':'kpc', 'scale':'linear', 'reverse':False}, 
            'abs_mag': {'label':'$M_V$', 'conversion': lambda v:round(v,1), 'unit':'mag', 'scale':'linear', 'reverse':True},
            'r_physical': {'label':'$r_{1/2}$', 'conversion': lambda r:int(round(r,0)), 'unit':'pc', 'scale':'log', 'reverse':False},
-           'stellar_mass': {'label':'$M_*$', 'conversion': lambda m: '$10^{{{}}}$'.format(round(np.log10(m),1)), 'unit':'$M_{\odot}$', 'scale':'log', 'reverse':False}
+           'stellar_mass': {'label':'$M_*$', 'conversion': lambda m: '$10^{{{}}}$'.format(round(np.log10(m),1)), 'unit':'$M_{\odot}$', 'scale':'log', 'reverse':False},
+           'aperature': {'label':'aperature', 'conversion': lambda a:round(a,2), 'unit':'$a_h$' if aperature_type=='factor' else 'deg', 'scale':'linear', 'reverse':False}
            }
     def is_near(arr, val, e=0.001):
         return np.array([val-e < a < val+e for a in arr])
 
     if '.fits' not in fname:
         fname += '.fits'
-    if len(args)+len(kwargs) != 3:
-        raise ValueError("Error in the number of specified parameters")
+    #if len(args)+len(kwargs) != 3:
+    #    raise ValueError("Error in the number of specified parameters")
 
     # Cut the table down based on the parameters set in kwargs:
     table = fits.open(fname)[1].data
@@ -528,7 +537,7 @@ def plot_matrix(fname, *args, **kwargs):
 
         
         # Place known sats on plot:
-        if 'distance' in kwargs:
+        if 'abs_mag' in args and 'r_physical' in args:
             plt.sca(ax)
             translation = {'distance':'distance_kpc', 'abs_mag':'m_v', 'r_physical':'r_physical'}
             dwarfs = load_data.Satellites().dwarfs
@@ -628,30 +637,54 @@ if args.sim:
     inputs = load_data.Inputs()
     calc_sigma(inputs, args.distance, args.abs_mag, args.r_physical, plot=True)
 if args.scan or args.plots:
-    distances = np.arange(400, 2200, 200)
+    #distances = np.arange(400, 2200, 200)
     #abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
-    abs_mags = np.array([-6.5])
-    #log_r_physical_pcs = np.arange(1, 3.2, 0.2)
-    log_r_physical_pcs = np.array([1])
+    log_r_physical_pcs = np.arange(1, 3.2, 0.2)
     r_physicals = 10**log_r_physical_pcs
-    aperatures = np.arange(0.6, 3.2, 0.2)
-    aperature_type='factor'
-    
+    #n_trials=1
+
+    distances = np.arange(400, 2200, 200)
+    abs_mags = np.array([-6.5])
+    #r_physicals = np.array([100])
+    aperatures = np.arange(0.01, 0.11, 0.01)
+    aperature_type='radius'
+    n_trials=1
 
     if args.scan:
-        create_sigma_matrix(distances, abs_mags, r_physicals, aperatures, aperature_type, outname='sigma_matrix_{}'.format(aperature_type))
+        create_sigma_matrix(distances, abs_mags, r_physicals, aperatures, aperature_type, outname='sigma_matrix_{}'.format(aperature_type), n_trials=n_trials)
 
     if args.plots:
         subprocess.call('mkdir -p {}'.format('mat_plots').split()) # Don't want to have this call happen for each and every plot
 
+        fname = 'sigma_matrix_radius'
         for d in distances:
-            plot_matrix('sigma_matrix', 'abs_mag', 'r_physical', distance=d)
-
+            plot_matrix(fname, 'aperature', 'r_physical', distance=d)
         for r in r_physicals:
-            plot_matrix('sigma_matrix', 'distance', 'abs_mag', r_physical=r)
+            plot_matrix(fname, 'distance', 'aperature', r_physical=r)
+        #for m in abs_mags:
+        #    plot_matrix(fname, 'distance', 'r_physical', abs_mag=m)
+        for a in aperatures:
+            plot_matrix(fname, 'distance', 'r_physical', aperature=a)
 
-        for m in abs_mags:
-            plot_matrix('sigma_matrix', 'distance', 'r_physical', abs_mag=m)
+        #fname = 'sigma_matrix_factor'
+        #for d in distances:
+        #    for r in r_physicals:
+        #        plot_matrix(fname, 'abs_mag', 'aperature', distance=d, r_physical=r)
+        #    for m in abs_mags:
+        #        plot_matrix(fname, 'r_physical', 'aperature', distance=d, abs_mag=m)
+        #    for a in aperatures:
+        #        plot_matrix(fname, 'abs_mag', 'r_physical', distance=d, aperature=a)
+        #for r in r_physicals:
+        #    for m in abs_mags:
+        #        plot_matrix(fname, 'distance', 'aperature', r_physical=r, abs_mag=m)
+        #    for a in aperatures:
+        #        plot_matrix(fname, 'distance' 'abs_mag', r_physical=r, aperature=a)
+        #for m in abs_mags:
+        #    for a in aperatures:
+        #        plot_matrix(fname, 'distance', 'r_physical', abs_mag=m, aperature=a)
+
+        plot_matrix('sigma_matrix_factor', 'distance', 'aperature', r_physical=100, abs_mag=-6.5)
+
 
 if args.known:
     sim_known_sats()
