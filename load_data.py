@@ -5,6 +5,7 @@ import numpy as np
 import scipy
 import ugali.utils.healpix
 from utils import *
+from helpers.SimulationAnalysis import readHlist
 
 class Satellites:
     def __init__(self):
@@ -87,4 +88,94 @@ class Inputs:
 
         self.m_ebv = ugali.utils.healpix.read_map('datafiles/ebv_sfd98_fullres_nside_4096_nest_equatorial.fits.gz')
 
+
+class Parameters:
+    """
+    params (dict): dict containing free parameters
+    params['alpha'] (float): faint-end slope of satellite luminosity function
+    params['sigma_M'] (float): lognormal scatter in M_V--V_peak relation (in dex)
+    params['M50'] (float): mass at which 50% of halos host galaxies (in log10(M*/h))
+    params['sigma_mpeak'] (float): scatter in galaxy occupation fraction
+    params['B'] (float): subhalo disruption probability (due to baryons)
+    params['A']: satellite size relation amplitude
+    params['sigma_r']: satellite size relation scatter
+    params['n']: satellite size relation slope
+
+    hparams (dict): dict containing hyperparameters
+    hparams['vpeak_cut']: subhalo vpeak resolution threshold
+    hparams['vmax_cut']: subhalo vmax resolution threshold
+    hparams['chi']: satellite radial scaling
+    hparams['R0']: satellite size relation normalization
+    hparams['gamma_r']: slope of concentration dependence in satellite size relation
+    hparams['beta']: tidal stripping parameter
+    hparams['O']: orphan satellite parameter
+
+    cosmo_params (dict): dict containing cosmological parameters
+    cosmo_params['omega_b']: baryon fraction
+    cosmo_params['omega_m']: matter fraction
+    cosmo_params['h']: dimensionless hubble parameter
+    """
+
+    def load_connectionparams(self):
+        # Best fit parameters from Paper II
+        params = {}
+        params['alpha'] = -1.43
+        params['sigma_M'] = 0.004
+        params['M50'] = 7.51
+        params['sigma_mpeak'] = 0.03 # sigma_gal
+        params['B'] = 0.93
+        params['A'] = 37
+        params['sigma_r'] = 0.63
+        params['n'] = 1.07
+        return params
+
+    def load_cosmoparams(self):
+        cosmo_params = {}
+        cosmo_params['omega_b'] = 0.0
+        cosmo_params['omega_m'] = 0.286
+        cosmo_params['h'] = 0.7
+        return cosmo_params
+
+    def load_hyperparams(self):
+        hparams = {}
+        hparams['vpeak_cut'] = 10.
+        hparams['vmax_cut'] = 9.
+        hparams['chi'] = 1.
+        hparams['R0'] = 10.0
+        hparams['gamma_r'] = 0.0
+        hparams['beta'] = 0.
+        hparams['O'] = 1.
+        return hparams
+
+    def __init__(self):
+        self.connection = self.load_connectionparams()
+        self.cosmo = self.load_cosmoparams()
+        self.hyper = self.load_hyperparams()
+
+    def __getitem__(self, key):
+        dics = (self.connection, self.cosmo, self.hyper)
+        exception_count = 0
+        for dic in dics:
+            try:
+                val = dic[key]
+                return val
+            except KeyError as e:
+                exception_count += 1
+                if exception_count == len(dics):
+                    raise e
+                else:
+                    continue
+    # I tried to make a __setitem__, but I couldn't make it work.
+    # Ex: After running params['vpeak_cut'] = 5.1, calling
+    # params['vpeak_cut'] == 5.1, but params.hyper['vpeak_cut'] != 5.1
+
+
+class Halos:
+    def __init__(self, pair):
+        """Pair is either RJ (Romeo and Juliet) or TL (Thelma and Louise)"""
+        fields = ['scale','id', 'upid', 'pid', 'mvir', 'mpeak', 'rvir', 'rs', 'vmax', 'vpeak', 'vacc', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'M200c', 'depth_first_id','scale_of_last_MM']
+        halos = readHlist('datafiles/hlist_1.00000_RJ.list', fields)
+        self.M31 = halos[0]
+        self.MW = halos[1]
+        self.subhalos = halos[2:]
 

@@ -227,9 +227,10 @@ def simSatellite(inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physic
     return sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended
 
 
-def calc_sigma(inputs, distance, abs_mag, r_physical, aperature=1, aperature_type='factor', plot=False, outname=None):
-    """ If aperature_type is factor, the ROI is a cirle with r=aperature*a_h.
-    If aperature_type is 'radius', the ROI is a circle with r=aperature (in degrees)"""
+def calc_sigma(inputs, distance, abs_mag, r_physical, aperature=1, aperature_type='factor', aperature_shape='circle', plot=False, outname=None):
+    """ aperature_shape determines shape of the aperture. In the case of ellipse, will cheat by using known position angle.
+    If aperature_type is factor, the aperature will have r=aperature*a_h
+    If aperature_type is radius, the aperature will have r=aperature (in degrees)"""
 
     sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
     
@@ -265,34 +266,37 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, aperature=1, aperature_typ
     #true_background = true_rho_field * np.pi*a*b
     
     # Signal
-    ## Ellpise with known position angle and ellipticity, a = a_h
-    #aperature = 'ellipse'
-    #theta = 90-position_angle
-    #a = a_h
-    #b = a*(1-ellipticity)
-
-    #sat_in_ellipse = ((lon[cut_sat]-center_ra)*np.cos(theta) + (lat[cut_sat]-center_dec)*np.sin(theta))**2/a**2 + \
-    #                 ((lon[cut_sat]-center_ra)*np.sin(theta) - (lat[cut_sat]-center_dec)*np.cos(theta))**2/b**2 <= 1
-    #field_ras = stars[cut_field]['RA']
-    #field_decs = stars[cut_field]['DEC']
-    #field_in_ellipse = ((field_ras-center_ra)*np.cos(theta) + (field_decs-center_dec)*np.sin(theta))**2/a**2 + \
-    #                   ((field_ras-center_ra)*np.sin(theta) - (field_decs-center_dec)*np.cos(theta))**2/b**2 <= 1
-    #signal = sum(sat_in_ellipse) + sum(field_in_ellipse)
-    #background = rho_field * np.pi*a*b
-
-    # Circle of radius a
-    # Avoding angToDisc since resoltion may be a problem
-    roi = 'circle'
     if aperature_type == 'factor':
         a = aperature*a_h
     elif aperature_type == 'radius':
         a = aperature
     else:
-        raise Exception('bad aperaturo')
-    field_in_circle = ((stars[cut_field]['RA']-center_ra)**2 + (stars[cut_field]['DEC']-center_dec)**2) < a**2
-    sat_in_circle = ((lon[cut_sat]-center_ra)**2 + (lat[cut_sat]-center_dec)) < a**2
-    signal = sum(field_in_circle) + sum(sat_in_circle)
-    background = rho_field * np.pi*a**2
+        raise ValueError('bad aperature_type')
+
+    # Ellpise with known position angle and ellipticity, a = a_h
+    if aperature_shape == 'ellipse':
+        theta = 90-position_angle
+        a = a_h
+        b = a*(1-ellipticity)
+
+        sat_in_ellipse = ((lon[cut_sat]-center_ra)*np.cos(theta) + (lat[cut_sat]-center_dec)*np.sin(theta))**2/a**2 + \
+                         ((lon[cut_sat]-center_ra)*np.sin(theta) - (lat[cut_sat]-center_dec)*np.cos(theta))**2/b**2 <= 1
+        field_ras = stars[cut_field]['RA']
+        field_decs = stars[cut_field]['DEC']
+        field_in_ellipse = ((field_ras-center_ra)*np.cos(theta) + (field_decs-center_dec)*np.sin(theta))**2/a**2 + \
+                           ((field_ras-center_ra)*np.sin(theta) - (field_decs-center_dec)*np.cos(theta))**2/b**2 <= 1
+        signal = sum(sat_in_ellipse) + sum(field_in_ellipse)
+        background = rho_field * np.pi*a*b
+
+    # Circle of radius a
+    # Avoding angToDisc since resolution may be a problem
+    elif aperature_shape == 'circle':
+        sat_in_circle = ((lon[cut_sat]-center_ra)**2 + (lat[cut_sat]-center_dec)) < a**2
+        field_in_circle = ((stars[cut_field]['RA']-center_ra)**2 + (stars[cut_field]['DEC']-center_dec)**2) < a**2
+        signal = sum(field_in_circle) + sum(sat_in_circle)
+        background = rho_field * np.pi*a**2
+    else:
+        raise ValueError('bad aperature_shape')
 
     sigma = min(norm.isf(poisson.sf(signal, background)), 38.0)
 
@@ -359,10 +363,10 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, aperature=1, aperature_typ
 
         half_light_ellipse = Ellipse(xy=(0,0), width=2*a_h, height=2*(1-ellipticity)*a_h, angle=90-position_angle, edgecolor='green', linewidth=1.5, linestyle='--', fill=False, zorder=10)
         half_light_ellipse_label = "$a_h = {}'$".format(round(a_h*60, 1))
-        if roi == 'ellipse':
+        if aperature_shape == 'ellipse':
             aperature_patch = Ellipse(xy=(0,0), width=2*a, height=2*((1-ellipticity)*a), angle=90-position_angle, edgecolor='green', linewidth=1.5, fill=False, zorder=10)
             aperature_label = 'Aperature ($a = {}$)'.format(round(a*60, 1))
-        elif roi == 'circle':
+        elif aperature_shape == 'circle':
             aperature_patch = Circle(xy=(0,0), radius=a, edgecolor='green', linewidth=1.5, fill=False, zorder=10)
             aperature_label = 'Aperature ($r = {}$)'.format(round(a*60, 1))
         ax.add_patch(half_light_ellipse)
@@ -389,7 +393,7 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, aperature=1, aperature_typ
     return sigma
 
 
-def calc_sigma_trials(inputs, distance, abs_mag, r_physical, aperature=1, aperature_type='factor', n_trials=10, percent_bar=False):
+def calc_sigma_trials(inputs, distance, abs_mag, r_physical, aperature=1, aperature_type='factor', aperature_shape='circle', n_trials=10, percent_bar=False):
     sigmas = []
     for i in range(n_trials):
         sigmas.append(calc_sigma(inputs,distance,abs_mag,r_physical,aperature,aperature_type))
@@ -397,7 +401,7 @@ def calc_sigma_trials(inputs, distance, abs_mag, r_physical, aperature=1, aperat
     return np.mean(sigmas), np.std(sigmas), sigmas
 
 
-def create_sigma_matrix(distances, abs_mags, r_physicals, aperatures=[1], aperature_type='factor', outname='sigma_matrix', n_trials=1):
+def create_sigma_matrix(distances, abs_mags, r_physicals, aperatures=[1], aperature_type='factor', aperature_shape='circle', outname='sigma_matrix', n_trials=1):
     n_d = len(distances)
     n_m = len(abs_mags)
     n_r = len(r_physicals)
@@ -413,9 +417,9 @@ def create_sigma_matrix(distances, abs_mags, r_physicals, aperatures=[1], aperat
                 for l in range(n_a):
                     d, m, r, a = distances[i], abs_mags[j], r_physicals[k], aperatures[l]
                     if n_trials > 1:
-                        sigma = calc_sigma_trials(inputs, d, m, r, a, aperature_type, n_trials)[0]
+                        sigma = calc_sigma_trials(inputs, d, m, r, a, aperature_type, aperature_shape, n_trials)[0]
                     else:
-                        sigma = calc_sigma(inputs, d, m, r, a, aperature_type, plot=False)
+                        sigma = calc_sigma(inputs, d, m, r, a, aperature_type, aperature_shape, plot=False)
 
                     #sigma_matrix[i,j,k] = sigma
                     sigma_fits.append((d, m, r, a, sigma))
@@ -435,6 +439,11 @@ def plot_matrix(fname, *args, **kwargs):
         aperature_type = 'factor'
     elif 'radius' in fname:
         aperature_type = 'radius'
+
+    if 'circle' in fname:
+        aperature_type = 'cirlce'
+    elif 'ellipse' in fname:
+        aperature_type = 'ellipse'
 
     dic = {'distance': {'label':'$D$', 'conversion': lambda d:int(d), 'unit':'kpc', 'scale':'linear', 'reverse':False}, 
            'abs_mag': {'label':'$M_V$', 'conversion': lambda v:round(v,1), 'unit':'mag', 'scale':'linear', 'reverse':True},
