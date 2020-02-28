@@ -170,12 +170,65 @@ class Parameters:
     # params['vpeak_cut'] == 5.1, but params.hyper['vpeak_cut'] != 5.1
 
 
-class Halos:
+class Halos():
     def __init__(self, pair):
         """Pair is either RJ (Romeo and Juliet) or TL (Thelma and Louise)"""
         fields = ['scale','id', 'upid', 'pid', 'mvir', 'mpeak', 'rvir', 'rs', 'vmax', 'vpeak', 'vacc', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'M200c', 'depth_first_id','scale_of_last_MM']
-        halos = readHlist('datafiles/hlist_1.00000_RJ.list', fields)
-        self.M31 = halos[0]
-        self.MW = halos[1]
-        self.subhalos = halos[2:]
+        self.halos = readHlist('datafiles/hlist_1.00000_{}.list'.format(pair), fields)
 
+        self.halos = np.lib.recfunctions.append_fields(self.halos, ('rho','theta','phi'), [np.empty(len(self)) for _ in range(3)], usemask=False)
+        x,y,z = self.getCoords('cart')
+        self.setCoords('cart',x,y,z) # Fills in rho, theta, and phi
+
+        #self.M31 = self.halos[0]
+        #self.MW = self.halos[1]
+        #self.subhalos = self.halos[2:]
+    
+    @property
+    def M31(self): return self.halos[0]
+    @property
+    def MW(self): return self.halos[1]
+    @property
+    def subhalos(self): return self.halos[2:]
+
+    def __getitem__(self, key):
+        return self.halos[key]
+    def __setitem__(self, key, val):
+        self.halos[key] = val
+    def __len__(self):
+        return len(self.halos)
+
+    def getCoords(self,system):
+        if 'cart' in system:
+            return self['x'], self['y'], self['z']
+        elif 'sph' in system:
+            return self['rho'], self['theta'], self['phi']
+
+    def setCoords(self,system,*args):
+        if len(args) != 3:
+            raise ValueError("Wrong number of coordiantes")
+        if 'cart' in system:
+            x,y,z = args
+            rho = np.sqrt(x**2 + y**2 + z**2) # Using rho to avoid confusion with halo radii
+            theta = np.arccos(z/rho)
+            phi = np.arctan2(y,x)
+        elif 'sph' in system:
+            rho, theta, phi = args
+            x = rho*np.sin(theta)*np.cos(phi)
+            y = rho*np.sin(theta)*np.sin(phi)
+            z = rho*np.cos(theta)
+        else:
+            raise ValueError("Bad coordinate system name")
+        self['x'] = x
+        self['y'] = y
+        self['z'] = z
+        self['rho'] = rho
+        self['theta'] = theta
+        self['phi'] = phi
+
+    def centerOnMW(self):
+        x,y,z = self.getCoords('cart')
+        mwx, mwy, mwz = self.MW['x'], self.MW['y'], self.MW['z']
+        self.setCoords('cart', x-mwx, y-mwy, z-mwz)
+        ## Manually set theta, phi = 0, 0
+        #self.MW['theta'], self.MW['phi'] = 0., 0.

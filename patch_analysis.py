@@ -32,22 +32,7 @@ matplotlib.rcParams['font.family'] = 'serif'
 plt.ion()
 NSIDE = 4096
 
-p = argparse.ArgumentParser()
-# Quick plots
-p.add_argument('--cc', action='store_true')
-p.add_argument('--iso', action='store_true')
-# Sim and plot a single satellite
-p.add_argument('--sim', action='store_true')
-p.add_argument('-d', '--distance', type=float, help='kpc')
-p.add_argument('-r', '--r_physical', type=float, help='pc')
-p.add_argument('-m', '--abs_mag', type=float, help='mag')
-# Scan parameters space
-p.add_argument('--scan', action='store_true')
-p.add_argument('--plots', action='store_true')
-# Extra
-p.add_argument('--known', action='store_true')
-p.add_argument('--main', action='store_true')
-args = p.parse_args()
+
 
 patch = load_data.Patch()
 # For ease of typing:
@@ -401,7 +386,37 @@ def calc_sigma_trials(inputs, distance, abs_mag, r_physical, aperature=1, aperat
     return np.mean(sigmas), np.std(sigmas), sigmas
 
 
+def create_sigma_table(distances, abs_mags, r_physicals, aperatures=None, aperature_type='factor', aperature_shape='cirlce', outname='sigma_table', n_trials=1):
+    """Input arrays are all the same size. Runs throught i in range(len(array)) and calcs sigma for the ith satellite"""
+    if aperatures is None:
+        aperatures = np.tile(1, len(distances))
+        aperature_type = 'factor'
+
+    ld = len(distances)
+    lm = len(abs_mags)
+    lr = len(r_physicals)
+    la = len(aperatures)
+    if not (ld==lm and lm==lr and lr==la):
+        raise ValueError("Input arrays are not all the same size")
+    
+    inputs = load_data.Inputs()
+    sigma_table = []
+    for i in range(ld):
+        d, m, r, a = distances[i], abs_mags[i], r_physicals[i], aperatures[i]
+        if n_trials > 1:
+            sigma = calc_sigma_trials(inputs, d, m, r, a, aperature_type, aperature_shape, n_trials)[0]
+        else:
+            sigma = calc_sigma(inputs, d, m, r, a, aperature_type, aperature_shape, plot=False)
+        sigma_table.append((d,m,r,a,sigma))
+        percent.bar(i+1, ld)
+
+    dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('aperature',float), ('sigma',float)]
+    sigma_table = np.array(sigma_table, dtype=dtype)
+    fits.writeto(outname+'.fits', sigma_table, overwrite=True)
+    
+
 def create_sigma_matrix(distances, abs_mags, r_physicals, aperatures=[1], aperature_type='factor', aperature_shape='circle', outname='sigma_matrix', n_trials=1):
+    """ Scans over all combinations of distance, abs_mag, r_physical, and aperatures in the input arrays"""
     n_d = len(distances)
     n_m = len(abs_mags)
     n_r = len(r_physicals)
@@ -634,71 +649,88 @@ def main():
                 counter += 1
                 percent.bar(counter, len(distances)*len(abs_mags)*len(r_physicals))
 
+if __name__ == '__main__':
+    p = argparse.ArgumentParser()
+    # Quick plots
+    p.add_argument('--cc', action='store_true')
+    p.add_argument('--iso', action='store_true')
+    # Sim and plot a single satellite
+    p.add_argument('--sim', action='store_true')
+    p.add_argument('-d', '--distance', type=float, help='kpc')
+    p.add_argument('-r', '--r_physical', type=float, help='pc')
+    p.add_argument('-m', '--abs_mag', type=float, help='mag')
+    # Scan parameters space
+    p.add_argument('--scan', action='store_true')
+    p.add_argument('--plots', action='store_true')
+    # Extra
+    p.add_argument('--known', action='store_true')
+    p.add_argument('--main', action='store_true')
+    args = p.parse_args()
 
-if args.cc or args.iso:
-    distances = np.arange(200, 2100, 100)
-    for distance in distances:
-        if args.cc:
-            plot_color_color(distance)
-        if args.iso:
-            plot_isochrone(distance)
-if args.sim:
-    inputs = load_data.Inputs()
-    calc_sigma(inputs, args.distance, args.abs_mag, args.r_physical, plot=True)
-if args.scan or args.plots:
-    #distances = np.arange(400, 2200, 200)
-    #abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
-    log_r_physical_pcs = np.arange(1, 3.2, 0.2)
-    r_physicals = 10**log_r_physical_pcs
-    #n_trials=1
+    if args.cc or args.iso:
+        distances = np.arange(200, 2100, 100)
+        for distance in distances:
+            if args.cc:
+                plot_color_color(distance)
+            if args.iso:
+                plot_isochrone(distance)
+    if args.sim:
+        inputs = load_data.Inputs()
+        calc_sigma(inputs, args.distance, args.abs_mag, args.r_physical, plot=True)
+    if args.scan or args.plots:
+        #distances = np.arange(400, 2200, 200)
+        #abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
+        log_r_physical_pcs = np.arange(1, 3.2, 0.2)
+        r_physicals = 10**log_r_physical_pcs
+        #n_trials=1
 
-    distances = np.arange(400, 2200, 200)
-    abs_mags = np.array([-6.5])
-    #r_physicals = np.array([100])
-    aperatures = np.arange(0.01, 0.11, 0.01)
-    aperature_type='radius'
-    n_trials=1
+        distances = np.arange(400, 2200, 200)
+        abs_mags = np.array([-6.5])
+        #r_physicals = np.array([100])
+        aperatures = np.arange(0.01, 0.11, 0.01)
+        aperature_type='radius'
+        n_trials=1
 
-    if args.scan:
-        create_sigma_matrix(distances, abs_mags, r_physicals, aperatures, aperature_type, outname='sigma_matrix_{}'.format(aperature_type), n_trials=n_trials)
+        if args.scan:
+            create_sigma_matrix(distances, abs_mags, r_physicals, aperatures, aperature_type, outname='sigma_matrix_{}'.format(aperature_type), n_trials=n_trials)
 
-    if args.plots:
-        subprocess.call('mkdir -p {}'.format('mat_plots').split()) # Don't want to have this call happen for each and every plot
+        if args.plots:
+            subprocess.call('mkdir -p {}'.format('mat_plots').split()) # Don't want to have this call happen for each and every plot
 
-        fname = 'sigma_matrix_radius'
-        for d in distances:
-            plot_matrix(fname, 'aperature', 'r_physical', distance=d)
-        for r in r_physicals:
-            plot_matrix(fname, 'distance', 'aperature', r_physical=r)
-        #for m in abs_mags:
-        #    plot_matrix(fname, 'distance', 'r_physical', abs_mag=m)
-        for a in aperatures:
-            plot_matrix(fname, 'distance', 'r_physical', aperature=a)
+            fname = 'sigma_matrix_radius'
+            for d in distances:
+                plot_matrix(fname, 'aperature', 'r_physical', distance=d)
+            for r in r_physicals:
+                plot_matrix(fname, 'distance', 'aperature', r_physical=r)
+            #for m in abs_mags:
+            #    plot_matrix(fname, 'distance', 'r_physical', abs_mag=m)
+            for a in aperatures:
+                plot_matrix(fname, 'distance', 'r_physical', aperature=a)
 
-        #fname = 'sigma_matrix_factor'
-        #for d in distances:
-        #    for r in r_physicals:
-        #        plot_matrix(fname, 'abs_mag', 'aperature', distance=d, r_physical=r)
-        #    for m in abs_mags:
-        #        plot_matrix(fname, 'r_physical', 'aperature', distance=d, abs_mag=m)
-        #    for a in aperatures:
-        #        plot_matrix(fname, 'abs_mag', 'r_physical', distance=d, aperature=a)
-        #for r in r_physicals:
-        #    for m in abs_mags:
-        #        plot_matrix(fname, 'distance', 'aperature', r_physical=r, abs_mag=m)
-        #    for a in aperatures:
-        #        plot_matrix(fname, 'distance' 'abs_mag', r_physical=r, aperature=a)
-        #for m in abs_mags:
-        #    for a in aperatures:
-        #        plot_matrix(fname, 'distance', 'r_physical', abs_mag=m, aperature=a)
+            #fname = 'sigma_matrix_factor'
+            #for d in distances:
+            #    for r in r_physicals:
+            #        plot_matrix(fname, 'abs_mag', 'aperature', distance=d, r_physical=r)
+            #    for m in abs_mags:
+            #        plot_matrix(fname, 'r_physical', 'aperature', distance=d, abs_mag=m)
+            #    for a in aperatures:
+            #        plot_matrix(fname, 'abs_mag', 'r_physical', distance=d, aperature=a)
+            #for r in r_physicals:
+            #    for m in abs_mags:
+            #        plot_matrix(fname, 'distance', 'aperature', r_physical=r, abs_mag=m)
+            #    for a in aperatures:
+            #        plot_matrix(fname, 'distance' 'abs_mag', r_physical=r, aperature=a)
+            #for m in abs_mags:
+            #    for a in aperatures:
+            #        plot_matrix(fname, 'distance', 'r_physical', abs_mag=m, aperature=a)
 
-        plot_matrix('sigma_matrix_factor', 'distance', 'aperature', r_physical=100, abs_mag=-6.5)
+            plot_matrix('sigma_matrix_factor', 'distance', 'aperature', r_physical=100, abs_mag=-6.5)
 
 
-if args.known:
-    sim_known_sats()
-if args.main:
-    main()
+    if args.known:
+        sim_known_sats()
+    if args.main:
+        main()
 
 
 """
