@@ -2,6 +2,7 @@
 
 from astropy.io import fits
 import numpy as np
+from numpy.lib.recfunctions import append_fields
 import scipy
 import ugali.utils.healpix
 from utils import *
@@ -176,20 +177,27 @@ class Halos():
         fields = ['scale','id', 'upid', 'pid', 'mvir', 'mpeak', 'rvir', 'rs', 'vmax', 'vpeak', 'vacc', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'M200c', 'depth_first_id','scale_of_last_MM']
         self.halos = readHlist('datafiles/hlist_1.00000_{}.list'.format(pair), fields)
 
-        self.halos = np.lib.recfunctions.append_fields(self.halos, ('rho','theta','phi'), [np.empty(len(self)) for _ in range(3)], usemask=False)
+        subhalos = self.halos[2:]
+        params = Parameters()
+        mpeak_cut = (subhalos['mpeak']*(1-params.cosmo['omega_b']/params.cosmo['omega_m']) > 10**7)
+        vpeak_cut = (subhalos['vpeak'] > params.hyper['vpeak_cut'])
+        vmax_cut = (subhalos['vmax'] > params.hyper['vmax_cut'])
+        self.subhalo_cut = (mpeak_cut & vpeak_cut & vmax_cut)
+
+        self.halos = append_fields(self.halos, ('rho','theta','phi'), [np.empty(len(self)) for _ in range(3)], usemask=False)
         x,y,z = self.getCoords('cart')
         self.setCoords('cart',x,y,z) # Fills in rho, theta, and phi
 
         #self.M31 = self.halos[0]
         #self.MW = self.halos[1]
-        #self.subhalos = self.halos[2:]
+        #self.subhalos = self.halos[2:][self.subhalo_cut]
     
     @property
     def M31(self): return self.halos[0]
     @property
     def MW(self): return self.halos[1]
     @property
-    def subhalos(self): return self.halos[2:]
+    def subhalos(self): return self.halos[2:][self.subhalo_cut]
 
     def __getitem__(self, key):
         return self.halos[key]

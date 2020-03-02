@@ -403,7 +403,10 @@ def create_sigma_table(distances, abs_mags, r_physicals, aperatures=None, aperat
     sigma_table = []
     for i in range(ld):
         d, m, r, a = distances[i], abs_mags[i], r_physicals[i], aperatures[i]
-        if n_trials > 1:
+        if m < -10.0:
+            print ' Sat {} skipped due to large abs_mag = {}'.format(i, m)
+            sigma = 38.0
+        elif n_trials > 1:
             sigma = calc_sigma_trials(inputs, d, m, r, a, aperature_type, aperature_shape, n_trials)[0]
         else:
             sigma = calc_sigma(inputs, d, m, r, a, aperature_type, aperature_shape, plot=False)
