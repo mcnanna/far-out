@@ -11,7 +11,9 @@ def fluxToMag(flux):
     """
     Convert from flux (Jy) to AB magnitude
     """
-    return -2.5 * np.log10(flux / 3631.)
+    with np.errstate(invalid='ignore'):
+        mag =-2.5 * np.log10(flux / 3631.)
+    return mag
 
 def getFluxError(mag, mag_error):
     return magToFlux(mag) * mag_error / 1.0857362
@@ -26,7 +28,8 @@ def color_cut(g, r, i, gerr, rerr, ierr, color_tol=0.2):
 
     x = g-r
     y = r-i
-    cut = distance(x, y) < np.sqrt(color_tol**2 + gerr**2 + rerr*2 + ierr*2)
+    with np.errstate(invalid='ignore'):
+        cut = distance(x, y) < np.sqrt(color_tol**2 + gerr**2 + rerr*2 + ierr*2)
     cut &= r < 24.25
     cut &= i < 24.5
     return cut 
