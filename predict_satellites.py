@@ -59,47 +59,46 @@ class Satellites:
         halo_r12 = params.connection['A']*c_correction*beta_correction * ((subhalos['rvir']/(params.hyper['R0']*params.cosmo['h']))**params.connection['n'])
         self.r_physical = np.random.lognormal(np.log(halo_r12), np.log(10)*params.connection['sigma_r']) # pc
 
-    
-    def ra_dec(self, gamma=0.):
+    def ra_dec(self, psi=0):
+        # Target locations
         m31_ra, m31_dec = 10.6846, 41.2692
-        m31_theta = np.radians(90-m31_dec) # The target theta, not the current theta
-        m31_phi = np.radians(m31_ra) # The target phi, not the current phi
+        m31_theta = np.radians(90-m31_dec)
+        m31_phi = np.radians(m31_ra)
 
         m31 = self.halos.M31
-        x31, y31, z31 = m31['x'], m31['y'], m31['z'] # Scaling from chi and h shouldn't matter
+        x31, y31, z31 = m31['x'], m31['y'], m31['z']
         r31 = np.sqrt(x31**2 + y31**2 + z31**2)
+        # Normalized unit vector in direction of M31
+        u = x31/r31
+        v = y31/r31
+        w = z31/r31
 
-        # Solve for beta:
-        beta = sy.Symbol('beta')
-        sols = sy.solvers.solve(-1*sy.sin(beta)*x31 + sy.cos(beta)*sy.sin(gamma)*y31 + sy.cos(beta)*sy.cos(gamma)*z31 - r31*sy.cos(m31_theta), beta, numerical=True, minimal=True)
-        beta = float(sols[0]) # Arbitrary?
+        # https://sites.google.com/site/glennmurray/Home/rotation-matrices-and-formulas/rotation-about-an-arbitrary-axis-in-3-dimensions
+        # Rotate vector about z-axis to put it into the xz-plane
+        Txz = np.array([[ u/np.sqrt(u**2+v**2), v/np.sqrt(u**2+v**2), 0],
+                        [-v/np.sqrt(u**2+v**2), u/np.sqrt(u**2+v**2), 0],
+                        [0,0,1]])
+        # Rotate vector into the z-axis, about y-axis
+        Tz = np.array([[w, 0, -np.sqrt(u**2+v**2)],
+                       [0,1,0],
+                       [np.sqrt(u**2+v**2), 0, w]])
+        # Rotate about new z-axis by arbitrary angle psi
+        Rz = np.array([[np.cos(psi), -np.sin(psi), 0],
+                       [np.sin(psi),  np.cos(psi), 0],
+                       [0,0,1]])
+        # Rotate vector out of z-axis to desired theta
+        Ttheta = np.array([[ np.cos(m31_theta), 0, np.sin(m31_theta)],
+                          [0,1,0],
+                          [-np.sin(m31_theta), 0, np.cos(m31_theta)]])
+        # Rotate about z axis to get desired phi
+        Tphi = np.array([[np.cos(m31_phi), -np.sin(m31_phi), 0],
+                         [np.sin(m31_phi),  np.cos(m31_phi), 0],
+                         [0,0,1]])
 
-        # Solve for alpha
-        alpha = sy.Symbol('alpha')
-        sols = sy.solvers.solve(sy.cos(alpha)*sy.cos(beta)*x31 + 
-                               (sy.cos(alpha)*sy.sin(beta)*sy.sin(gamma)-sy.sin(alpha)*sy.cos(gamma))*y31 + 
-                               (sy.cos(alpha)*sy.sin(beta)*sy.cos(gamma)+sy.sin(alpha)*sy.sin(gamma))*z31 -
-                               r31*sy.sin(m31_theta)*sy.cos(m31_phi), numerical=True, minimal=True)
-        # Possible degeneracy in alpha
-        for alpha in map(float,sols):
-            R = np.array([[np.cos(alpha)*np.cos(beta), np.cos(alpha)*np.sin(beta)*np.sin(gamma)-np.sin(alpha)*np.cos(gamma), np.cos(alpha)*np.sin(beta)*np.cos(gamma)+np.sin(alpha)*np.sin(gamma)],
-                          [np.sin(alpha)*np.cos(beta), np.sin(alpha)*np.sin(beta)*np.sin(gamma)+np.cos(alpha)*np.cos(gamma), np.sin(alpha)*np.sin(beta)*np.cos(gamma)-np.cos(alpha)*np.sin(gamma)],
-                          [-1*np.sin(beta), np.cos(beta)*np.sin(gamma), np.cos(beta)*np.cos(gamma)]])
+        transform = np.linalg.multi_dot((Tphi, Ttheta, Rz, Tz, Txz))
 
-            # Check:
-            x31p, y31p, z31p = np.dot(R, np.array((x31, y31, z31)))
-            theta = np.arccos(z31p/np.sqrt(x31p**2+y31p**2+z31p**2))
-            phi = np.arctan2(y31p,x31p)
-            tol = 0.001
-            if m31_theta-tol<theta<m31_theta+tol and m31_phi-tol<phi<m31_phi+tol:
-                break
-        else:
-            raise Exception("No solution found")
-
-        # Apply transformation to all halos
-        x,y,z = self.x, self.y, self.z
-        xp, yp, zp = np.dot(R, np.array((x,y,z)))
-        # Convert xp,yp,zp into RA, DEC
+        # Apply to all halos
+        xp, yp, zp = np.dot(transform, np.array((self.x, self.y, self.z)))
         phi = np.arctan2(yp, xp)
         phi = np.array([(p if p>0 else p+2*np.pi) for p in phi])
         r = np.sqrt(xp**2 + yp**2 + zp**2)
@@ -108,7 +107,6 @@ class Satellites:
         dec = 90-np.degrees(theta)
 
         return ra, dec
-    
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
@@ -134,26 +132,29 @@ if __name__ == '__main__':
         patch_analysis.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.distance[cut],  aperature_shape='ellipse', aperature_type='factor', outname='sim_results/{}/'.format(args.pair)+args.fname)
 
     if args.count:
-        sigma_table = fits.open(args.fname+'.fits')[1].data
+        sigma_table = fits.open('sim_results/{}/'.format(args.pair)+args.fname+'.fits')[1].data
         footprint = ugali.utils.healpix.read_map('datafiles/healpix_nest_y6a1_footprint_griz_frac05_nimages2.fits.gz', nest=True) 
 
         total_sats = []
         detectable_sats = []
 
+        results = []
+
         rots = 30
         for i in range(rots):
-            gamma = 2*np.pi * float(i)/rots
-            sat_ras, sat_decs = sats.ra_dec(gamma)
+            phi = 2*np.pi * float(i)/rots
+            try:
+                sat_ras, sat_decs = sats.ra_dec(phi)
+            except ValueError:
+                continue
             sat_ras, sat_decs = sat_ras[cut], sat_decs[cut]
             sigmas = sigma_table['sigma']
 
             pix = ugali.utils.healpix.angToPix(4096, sat_ras, sat_decs, nest=True)
             footprint_cut = footprint[pix] > 0
             detectable_cut = sigmas > 6.0
-            print "gamma = {}: {} total sats, {} detectable".format(gamma, sum(footprint_cut), sum(footprint_cut & detectable_cut))
-            total_sats.append(sum(footprint_cut))
-            detectable_sats.append(sum(footprint_cut & detectable_cut))
-
+            print "phi = {}: {} total sats, {} detectable".format(phi, sum(footprint_cut), sum(footprint_cut & detectable_cut))
+            results.append([footprint_cut, detectable_cut])
 
             plt.figure(figsize=(12,8)) 
             smap = skymap.Skymap(projection='mbtfpq', lon_0=0)
@@ -164,7 +165,6 @@ if __name__ == '__main__':
             sizes[footprint_cut] = 50.0
             def custom_scatter(smap,x,y,markers,**kwargs):
                 sc = smap.scatter(x,y,**kwargs)
-                
                 paths=[]
                 for marker in markers:
                     marker_obj = mmarkers.MarkerStyle(marker)
@@ -177,10 +177,21 @@ if __name__ == '__main__':
             #Add DES polygon
             des_poly = np.genfromtxt('/Users/mcnanna/Research/y3-mw-sats/data/round19_v0.txt',names=['ra','dec'])
             smap.plot(des_poly['ra'], des_poly['dec'], latlon=True, c='0.25', lw=3, alpha=0.3, zorder=0)
-            plt.savefig('sim_results/{0}/{0}_skymap_gamma={1}.png'.format(args.pair, round(gamma,2)), bbox_inches='tight')
+
+            plt.title('$\phi = {}$; {} total sats in footprint, {} detectable'.format(round(phi,2), sum(footprint_cut), sum(footprint_cut & detectable_cut)))
+
+            plt.savefig('sim_results/{0}/{0}_skymap_phi={1}.png'.format(args.pair, str(phi)[:4]), bbox_inches='tight')
             plt.close()
 
-        np.save('{}_total_sats'.format(args.pair),total_sats)
-        np.save('{}_detectable_sats'.format(args.pair),detectable_sats)
+        results = np.array(results)
+        np.save('sim_results/{0}/{0}_results'.format(args.pair),results)
+
+        total_sats = [sum(cuts[0]) for cuts in results]
+        detectable_sats = [sum(cuts[0]&cuts[1]) for cuts in results]
+        plt.hist(total_sats, bins=10)
+        plt.hist(detectable_sats, bins=10)
+        plt.show()
+
+
             
 
