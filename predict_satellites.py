@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import subprocess
 import numpy as np
 import sympy as sy
 import pickle
@@ -14,6 +15,8 @@ import matplotlib
 import skymap
 import plot_utils
 import matplotlib.markers as mmarkers
+from matplotlib.ticker import MaxNLocator
+import percent
 matplotlib.rcParams['xtick.labelsize'] = 12
 matplotlib.rcParams['ytick.labelsize'] = 12
 matplotlib.rcParams['text.usetex'] = True
@@ -113,38 +116,40 @@ if __name__ == '__main__':
     p.add_argument('pair')
     p.add_argument('-t', '--table', action='store_true')
     p.add_argument('-c', '--count', action='store_true')
+    p.add_argument('-r', '--rotations', default=60, type=int)
+    p.add_argument('-p', '--plots', action='store_true')
     p.add_argument('-f', '--fname', default='default')
     args = p.parse_args()
 
     if args.fname == 'default':
         args.fname = 'sats_table_ellipse_{}'.format(args.pair)
 
-    sats = Satellites(args.pair)
-    close_cut = (sats.distance > 300)
-    far_cut = (sats.distance < 2000)
-    cut = close_cut & far_cut
+    if args.table or args.count:
+        sats = Satellites(args.pair)
+        close_cut = (sats.distance > 300)
+        far_cut = (sats.distance < 2000)
+        cut = close_cut & far_cut
 
-    #import warnings
-    #warnings.filterwarnings('ignore')
 
     if args.table:
         print '\n Excluding {} satelites closer than 300 kpc and {} beyond 2000 kpc\n'.format(sum(~close_cut), sum(~far_cut))
+        subprocess.call('mkdir -p sim_results/{}/'.format(args.pair).split())
         patch_analysis.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.distance[cut],  aperature_shape='ellipse', aperature_type='factor', outname='sim_results/{}/'.format(args.pair)+args.fname)
 
     if args.count:
         sigma_table = fits.open('sim_results/{}/'.format(args.pair)+args.fname+'.fits')[1].data
+        subprocess.call('mkdir -p sim_results/{}/skymaps'.format(args.pair).split())
         footprint = ugali.utils.healpix.read_map('datafiles/healpix_nest_y6a1_footprint_griz_frac05_nimages2.fits.gz', nest=True) 
 
         total_sats = []
         detectable_sats = []
 
+        print "Performing rotations..."
         results = []
-
-        rots = 30
-        for i in range(rots):
-            phi = 2*np.pi * float(i)/rots
+        for i in range(args.rotations):
+            psi = 2*np.pi * float(i)/args.rotations
             try:
-                sat_ras, sat_decs = sats.ra_dec(phi)
+                sat_ras, sat_decs = sats.ra_dec(psi)
             except ValueError:
                 continue
             sat_ras, sat_decs = sat_ras[cut], sat_decs[cut]
@@ -153,7 +158,7 @@ if __name__ == '__main__':
             pix = ugali.utils.healpix.angToPix(4096, sat_ras, sat_decs, nest=True)
             footprint_cut = footprint[pix] > 0
             detectable_cut = sigmas > 6.0
-            print "phi = {}: {} total sats, {} detectable".format(phi, sum(footprint_cut), sum(footprint_cut & detectable_cut))
+            #print "psi = {}: {} total sats, {} detectable".format(psi, sum(footprint_cut), sum(footprint_cut & detectable_cut))
             results.append([footprint_cut, detectable_cut])
 
             plt.figure(figsize=(12,8)) 
@@ -177,21 +182,49 @@ if __name__ == '__main__':
             #Add DES polygon
             des_poly = np.genfromtxt('/Users/mcnanna/Research/y3-mw-sats/data/round19_v0.txt',names=['ra','dec'])
             smap.plot(des_poly['ra'], des_poly['dec'], latlon=True, c='0.25', lw=3, alpha=0.3, zorder=0)
-
-            plt.title('$\phi = {}$; {} total sats in footprint, {} detectable'.format(round(phi,2), sum(footprint_cut), sum(footprint_cut & detectable_cut)))
-
-            plt.savefig('sim_results/{0}/{0}_skymap_phi={1}.png'.format(args.pair, str(phi)[:4]), bbox_inches='tight')
+            psideg = int(round(np.degrees(psi),0))
+            plt.title('$\psi = {}^{{\circ}}$; {} total sats in footprint, {} detectable'.format(psideg, sum(footprint_cut), sum(footprint_cut & detectable_cut)))
+            plt.savefig('sim_results/{0}/skymaps/{0}_skymap_psi={1:0>3d}.png'.format(args.pair, psideg), bbox_inches='tight')
             plt.close()
+            percent.bar(i+1, args.rotations)
 
+        # Merge skymaps into a .gif
+        print 'Creating .gif...'
+        subprocess.call("convert -delay 30 -loop 0 sim_results/{0}/skymaps/*.png sim_results/{0}/{0}_skymap.gif".format(args.pair).split())
+        print 'Done!'
+
+        # Save results
         results = np.array(results)
         np.save('sim_results/{0}/{0}_results'.format(args.pair),results)
 
+    
+    if args.plots:
+        # Plot results
+        results = np.load('sim_results/{0}/{0}_results.npy'.format(args.pair))
+        if args.pair == 'RJ':
+            title = 'Romeo \& Juliet'
+        elif args.pair == 'TL':
+            title = 'Thelma \& Louise'
+
+        def hist(result, xlabel, outname):
+            mx = max(result)
+            if mx<=30:
+                bins = np.arange(mx+2)-0.5
+            else:
+                bins = 30
+            plt.hist(result, bins=bins)
+            if mx <= 20:
+                xticks = range(mx+1)
+                plt.xticks(xticks)
+            plt.xlabel(xlabel)
+            plt.title(title)
+            plt.savefig('sim_results/{}/{}.png'.format(args.pair, outname), bbox_inches='tight')
+            plt.close()
+
         total_sats = [sum(cuts[0]) for cuts in results]
+        hist(total_sats, 'Satellites in footprint', 'total_sats_hist')
         detectable_sats = [sum(cuts[0]&cuts[1]) for cuts in results]
-        plt.hist(total_sats, bins=10)
-        plt.hist(detectable_sats, bins=10)
-        plt.show()
+        hist(detectable_sats, 'Detectable satellites in foorprint', 'detectable_sats_hist')
 
 
-            
 

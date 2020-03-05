@@ -120,14 +120,14 @@ class Parameters:
     def load_connectionparams(self):
         # Best fit parameters from Paper II
         params = {}
-        params['alpha'] = -1.43
-        params['sigma_M'] = 0.004
+        params['alpha'] = -1.428
+        params['sigma_M'] = 0.003
         params['M50'] = 7.51
         params['sigma_mpeak'] = 0.03 # sigma_gal
-        params['B'] = 0.93
-        params['A'] = 37
-        params['sigma_r'] = 0.63
-        params['n'] = 1.07
+        params['B'] = 0.92
+        params['A'] = 34
+        params['sigma_r'] = 0.51
+        params['n'] = 1.02
         return params
 
     def load_cosmoparams(self):
