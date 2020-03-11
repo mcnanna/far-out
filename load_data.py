@@ -176,7 +176,11 @@ class Halos():
         """Pair is either RJ (Romeo and Juliet) or TL (Thelma and Louise)"""
         fields = ['scale','id', 'upid', 'pid', 'mvir', 'mpeak', 'rvir', 'rs', 'vmax', 'vpeak', 'vacc', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'M200c', 'depth_first_id','scale_of_last_MM']
         self.halos = readHlist('datafiles/hlist_1.00000_{}.list'.format(pair), fields)
-        subhalos = self.halos[2:]
+
+        if pair == 'TL':
+            # Most massive subhalo is not MW or M31, so we must reorder 
+            new_order = [1,2,0] + range(3,len(self.halos))
+            self.halos = self.halos[np.array(new_order)]
 
         self.M31 = self.halos[0]
         self.MW = self.halos[1]

@@ -30,6 +30,7 @@ class Satellites:
         with open('datafiles/interpolator.pkl', 'rb') as interp:
             vpeak_Mr_interp = pickle.load(interp)
 
+
         # Cut subhalo catalog
         subhalos = self.halos.subhalos
         mpeak_cut = (subhalos['mpeak']*(1-params.cosmo['omega_b']/params.cosmo['omega_m']) > 10**7)
@@ -37,6 +38,7 @@ class Satellites:
         vmax_cut = (subhalos['vmax'] > params.hyper['vmax_cut'])
         cut = (mpeak_cut & vpeak_cut & vmax_cut)
         subhalos = subhalos[cut]
+        self.subhalos = subhalos
 
         # Calulate luminosities
         sort_idx = np.argsort(np.argsort(subhalos['vpeak']))
@@ -54,13 +56,15 @@ class Satellites:
         self.position = np.vstack((self.x, self.y, self.z)).T
 
         self.distance = np.sqrt(self.x**2+self.y**2+self.z**2) # kpc
-        
         # Calculate sizes
         c = subhalos['rvir']/subhalos['rs']
         c_correction = (c/10.)**params.hyper['gamma_r']
         beta_correction = ((subhalos['vmax']/subhalos['vacc']).clip(max=1.0))**params.hyper['beta']
         halo_r12 = params.connection['A']*c_correction*beta_correction * ((subhalos['rvir']/(params.hyper['R0']*params.cosmo['h']))**params.connection['n'])
         self.r_physical = np.random.lognormal(np.log(halo_r12), np.log(10)*params.connection['sigma_r']) # pc
+
+    def __len__(self):
+        return len(self.subhalos)
 
     def ra_dec(self, psi=0):
         # Target locations
@@ -128,13 +132,15 @@ if __name__ == '__main__':
         sats = Satellites(args.pair)
         close_cut = (sats.distance > 300)
         far_cut = (sats.distance < 2000)
+        #close_cut = (sats.distance <= 300)
+        #far_cut = np.tile(True, len(sats))
         cut = close_cut & far_cut
-
 
     if args.table:
         print '\n Excluding {} satelites closer than 300 kpc and {} beyond 2000 kpc\n'.format(sum(~close_cut), sum(~far_cut))
         subprocess.call('mkdir -p sim_results/{}/'.format(args.pair).split())
-        patch_analysis.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.distance[cut],  aperature_shape='ellipse', aperature_type='factor', outname='sim_results/{}/'.format(args.pair)+args.fname)
+        print "\nCalculating significances..."
+        patch_analysis.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut],  aperature_shape='ellipse', aperature_type='factor', outname='sim_results/{}/'.format(args.pair)+args.fname)
 
     if args.count:
         sigma_table = fits.open('sim_results/{}/'.format(args.pair)+args.fname+'.fits')[1].data
@@ -144,7 +150,7 @@ if __name__ == '__main__':
         total_sats = []
         detectable_sats = []
 
-        print "Performing rotations..."
+        print "\nPerforming rotations..."
         results = []
         for i in range(args.rotations):
             psi = 2*np.pi * float(i)/args.rotations
@@ -189,7 +195,7 @@ if __name__ == '__main__':
             percent.bar(i+1, args.rotations)
 
         # Merge skymaps into a .gif
-        print 'Creating .gif...'
+        print '\nCreating .gif...'
         subprocess.call("convert -delay 30 -loop 0 sim_results/{0}/skymaps/*.png sim_results/{0}/{0}_skymap.gif".format(args.pair).split())
         print 'Done!'
 

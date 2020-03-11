@@ -284,6 +284,7 @@ def calc_sigma(inputs, distance, abs_mag, r_physical, aperature=1, aperature_typ
         raise ValueError('bad aperature_shape')
 
     sigma = min(norm.isf(poisson.sf(signal, background)), 38.0)
+    sigma = max(sigma, 0.0)
 
     if plot:
         fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(12, 9))
