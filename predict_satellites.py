@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import subprocess
+import os.path
 import numpy as np
 import sympy as sy
 import pickle
@@ -17,6 +18,7 @@ import plot_utils
 import matplotlib.markers as mmarkers
 from matplotlib.ticker import MaxNLocator
 import percent
+from helpers.SimulationAnalysis import SimulationAnalysis, iterTrees
 matplotlib.rcParams['xtick.labelsize'] = 12
 matplotlib.rcParams['ytick.labelsize'] = 12
 matplotlib.rcParams['text.usetex'] = True
@@ -57,11 +59,52 @@ class Satellites:
 
         self.distance = np.sqrt(self.x**2+self.y**2+self.z**2) # kpc
         # Calculate sizes
-        c = subhalos['rvir']/subhalos['rs']
+        fname = 'datafiles/elvis/{0}/{0}_accretion_rvir.npy'.format(pair)
+        if os.path.isfile(fname):
+            rvir_acc, rs_acc = np.load(fname)
+        else:
+            sim = SimulationAnalysis(trees_dir = 'datafiles/elvis/{}/trees'.format(pair))
+            print "Loading M31 and MW main branches..."
+            tree_M31 = sim.load_main_branch(self.halos.M31['id'])
+            tree_MW = sim.load_main_branch(self.halos.MW['id'])
+
+            #distance_cut = self.distance < 2000 # kpc 
+            distance_cut = np.tile(True, len(subhalos))
+            main_branches = []
+            print "Loading {} subhalo branches...".format(sum(distance_cut))
+            count = 0
+            for subhalo in subhalos[distance_cut]:
+                branch = sim.load_main_branch(subhalo['id'])
+                main_branches.append(branch)
+                count += 1
+                percent.bar(count, sum(distance_cut))
+            
+            rvir_acc = np.zeros(len(main_branches))
+            rs_acc = np.zeros(len(main_branches))
+            for i in range(len(main_branches)):
+                branch = main_branches[i]
+                # Check if halo becomes M31 or MW subhalo
+                M31_overlap = np.isin(branch['upid'], tree_M31['id'])
+                MW_overlap = np.isin(branch['upid'], tree_MW['id'])
+                if True in M31_overlap:
+                    rvir_acc[i] = branch[M31_overlap]['rvir'][-1]
+                    rs_acc[i] = branch[M31_overlap]['rs'][-1]
+                elif True in MW_overlap:
+                    rvir_acc[i] = branch[MW_overlap]['rvir'][-1]
+                    rs_acc[i] = branch[MW_overlap]['rs'][-1]
+                else:
+                    peak_idx = np.argmax(branch['rvir'])
+                    rvir_acc[i] = branch['rvir'][peak_idx]
+                    rs_acc[i] = branch['rs'][peak_idx]
+
+            np.save(fname, (rvir_acc, rs_acc))
+
+        c = rvir_acc/rs_acc
         c_correction = (c/10.)**params.hyper['gamma_r']
         beta_correction = ((subhalos['vmax']/subhalos['vacc']).clip(max=1.0))**params.hyper['beta']
-        halo_r12 = params.connection['A']*c_correction*beta_correction * ((subhalos['rvir']/(params.hyper['R0']*params.cosmo['h']))**params.connection['n'])
+        halo_r12 = params.connection['A']*c_correction*beta_correction * ((rvir_acc/(params.hyper['R0']*params.cosmo['h']))**params.connection['n'])
         self.r_physical = np.random.lognormal(np.log(halo_r12), np.log(10)*params.connection['sigma_r']) # pc
+
 
     def __len__(self):
         return len(self.subhalos)
@@ -130,10 +173,10 @@ if __name__ == '__main__':
 
     if args.table or args.count:
         sats = Satellites(args.pair)
-        close_cut = (sats.distance > 300)
-        far_cut = (sats.distance < 2000)
-        #close_cut = (sats.distance <= 300)
-        #far_cut = np.tile(True, len(sats))
+        #close_cut = (sats.distance > 300)
+        #far_cut = (sats.distance < 2000)
+        close_cut = (sats.distance <= 300)
+        far_cut = np.tile(True, len(sats))
         cut = close_cut & far_cut
 
     if args.table:
