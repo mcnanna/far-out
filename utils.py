@@ -48,3 +48,12 @@ def mag_to_mass(m_v):
     return 10**((m_v-b)/a)
 
 
+def ra_dec(x, y, z):
+        phi = np.arctan2(y, x)
+        phi = np.array([(p if p>0 else p+2*np.pi) for p in phi])
+        r = np.sqrt(x**2 + y**2 + z**2)
+        theta = np.arccos(z/r)
+        ra = np.degrees(phi)
+        dec = 90-np.degrees(theta)
+
+        return ra, dec

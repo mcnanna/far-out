@@ -139,7 +139,7 @@ class Parameters:
 
     def load_hyperparams(self):
         hparams = {}
-        hparams['vpeak_cut'] = 10.
+        hparams['vpeak_cut'] = 10. # Increase? Come from minimum trusted mass -> vpeak through NFW relations. Could increase probably
         hparams['vmax_cut'] = 9.
         hparams['chi'] = 1.
         hparams['R0'] = 10.0
@@ -174,8 +174,8 @@ class Parameters:
 class Halos():
     def __init__(self, pair):
         """Pair is either RJ (Romeo and Juliet) or TL (Thelma and Louise)"""
-        fields = ['scale','id', 'upid', 'pid', 'mvir', 'mpeak', 'rvir', 'rs', 'vmax', 'vpeak', 'vacc', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'M200c', 'depth_first_id','scale_of_last_MM']
-        self.halos = readHlist('datafiles/hlist_1.00000_{}.list'.format(pair), fields)
+        fields = ['scale','id', 'upid', 'pid', 'mvir', 'mpeak', 'rvir', 'rs', 'vmax', 'vpeak', 'vacc', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'M200c', 'depth_first_id','scale_of_last_MM','jx','jy','jz']
+        self.halos = readHlist('datafiles/elvis/{0}/hlist_1.00000.list'.format(pair), fields)
 
         if pair == 'TL':
             # Most massive subhalo is not MW or M31, so we must reorder 
@@ -201,3 +201,74 @@ class Halos():
         self['x'] = x-mwx
         self['y'] = y-mwy
         self['z'] = z-mwz
+
+    def rotation(self, psi=0):
+        """Rotation matrix to put M31 at its (RA, DEC), with arbitary rotation psi
+        about MW-M31 vector."""
+
+        m31_ra, m31_dec = 10.6846, 41.2692
+        m31_theta = np.radians(90-m31_dec)
+        m31_phi = np.radians(m31_ra)
+
+        m31 = self.M31
+        x31, y31, z31 = m31['x'], m31['y'], m31['z']
+        r31 = np.sqrt(x31**2 + y31**2 + z31**2)
+        # Normalized unit vector in direction of M31
+        u = x31/r31
+        v = y31/r31
+        w = z31/r31
+
+        # https://sites.google.com/site/glennmurray/Home/rotation-matrices-and-formulas/rotation-about-an-arbitrary-axis-in-3-dimensions
+        # Rotate vector about z-axis to put it into the xz-plane
+        Txz = np.array([[ u/np.sqrt(u**2+v**2), v/np.sqrt(u**2+v**2), 0],
+                        [-v/np.sqrt(u**2+v**2), u/np.sqrt(u**2+v**2), 0],
+                        [0,0,1]])
+        # Rotate vector into the z-axis, about y-axis
+        Tz = np.array([[w, 0, -np.sqrt(u**2+v**2)],
+                       [0,1,0],
+                       [np.sqrt(u**2+v**2), 0, w]])
+        # Rotate about new z-axis by arbitrary angle psi
+        Rz = np.array([[np.cos(psi), -np.sin(psi), 0],
+                       [np.sin(psi),  np.cos(psi), 0],
+                       [0,0,1]])
+        # Rotate vector out of z-axis to desired theta
+        Ttheta = np.array([[ np.cos(m31_theta), 0, np.sin(m31_theta)],
+                          [0,1,0],
+                          [-np.sin(m31_theta), 0, np.cos(m31_theta)]])
+        # Rotate about z axis to get desired phi
+        Tphi = np.array([[np.cos(m31_phi), -np.sin(m31_phi), 0],
+                         [np.sin(m31_phi),  np.cos(m31_phi), 0],
+                         [0,0,1]])
+
+        transform = np.linalg.multi_dot((Tphi, Ttheta, Rz, Tz, Txz))
+        return transform
+
+
+    def mw_disk(self, n_points=1000):
+        jx = self.MW['jx']
+        jy = self.MW['jy']
+        jz = self.MW['jz']
+        # Normalize, probably unnecessary
+        j = np.sqrt(jx**2+jy**2+jz**2)
+        jx, jy, jz = jx/j, jy/j, jz/j
+
+        rng = np.linspace(-1,1,n_points)
+
+        disk_points = []
+        for z in rng:
+            a = 1 + jx**2/jy**2
+            b = (2*jx*jz/jy**2)*z
+            c = (1+jz**2/jy**2)*z**2 - 1
+
+            discriminant = b**2 - 4*a*c
+            if discriminant < 0:
+                continue
+
+            x1 = (-b + np.sqrt(b**2 - 4*a*c))/(2*a)
+            x2 = (-b - np.sqrt(b**2 - 4*a*c))/(2*a)
+            y1 = -1*(jx*x1 + jz*z)/jy
+            y2 = -1*(jx*x2 + jz*z)/jy
+            disk_points.append(np.array((x1,y1,z)))
+            disk_points.append(np.array((x2,y2,z)))
+
+        return np.array(disk_points)

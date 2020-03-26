@@ -108,7 +108,7 @@ class Satellites:
 
     def __len__(self):
         return len(self.subhalos)
-
+    """
     def ra_dec(self, psi=0):
         # Target locations
         m31_ra, m31_dec = 10.6846, 41.2692
@@ -157,6 +157,12 @@ class Satellites:
         dec = 90-np.degrees(theta)
 
         return ra, dec
+    """
+    def ra_dec(self, psi=0):
+        transform = self.halos.rotation(psi)
+        xp, yp, zp = np.dot(transform, np.array((self.x, self.y, self.z)))
+        return utils.ra_dec(xp, yp, zp)
+
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
@@ -173,10 +179,10 @@ if __name__ == '__main__':
 
     if args.table or args.count:
         sats = Satellites(args.pair)
-        #close_cut = (sats.distance > 300)
-        #far_cut = (sats.distance < 2000)
-        close_cut = (sats.distance <= 300)
-        far_cut = np.tile(True, len(sats))
+        close_cut = (sats.distance > 300)
+        far_cut = (sats.distance < 2000)
+        #close_cut = (sats.distance <= 300)
+        #far_cut = np.tile(True, len(sats))
         cut = close_cut & far_cut
 
     if args.table:
@@ -197,10 +203,7 @@ if __name__ == '__main__':
         results = []
         for i in range(args.rotations):
             psi = 2*np.pi * float(i)/args.rotations
-            try:
-                sat_ras, sat_decs = sats.ra_dec(psi)
-            except ValueError:
-                continue
+            sat_ras, sat_decs = sats.ra_dec(psi)
             sat_ras, sat_decs = sat_ras[cut], sat_decs[cut]
             sigmas = sigma_table['sigma']
 
@@ -231,6 +234,16 @@ if __name__ == '__main__':
             #Add DES polygon
             des_poly = np.genfromtxt('/Users/mcnanna/Research/y3-mw-sats/data/round19_v0.txt',names=['ra','dec'])
             smap.plot(des_poly['ra'], des_poly['dec'], latlon=True, c='0.25', lw=3, alpha=0.3, zorder=0)
+            #Add MW disk
+            #import pdb; pdb.set_trace()
+            disk_points = sats.halos.mw_disk()
+            transform = sats.halos.rotation(psi)
+            dx, dy, dz = np.dot(transform, disk_points.T)
+            dras, ddecs = utils.ra_dec(dx, dy, dz)
+            order = np.argsort(dras)
+            dras, ddecs = dras[order], ddecs[order]
+            smap.plot(dras, ddecs, latlon=True, c='green', lw=3, zorder=0)
+
             psideg = int(round(np.degrees(psi),0))
             plt.title('$\psi = {}^{{\circ}}$; {} total sats in footprint, {} detectable'.format(psideg, sum(footprint_cut), sum(footprint_cut & detectable_cut)))
             plt.savefig('sim_results/{0}/skymaps/{0}_skymap_psi={1:0>3d}.png'.format(args.pair, psideg), bbox_inches='tight')
