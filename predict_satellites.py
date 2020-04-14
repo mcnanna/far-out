@@ -108,56 +108,7 @@ class Satellites:
 
     def __len__(self):
         return len(self.subhalos)
-    """
-    def ra_dec(self, psi=0):
-        # Target locations
-        m31_ra, m31_dec = 10.6846, 41.2692
-        m31_theta = np.radians(90-m31_dec)
-        m31_phi = np.radians(m31_ra)
 
-        m31 = self.halos.M31
-        x31, y31, z31 = m31['x'], m31['y'], m31['z']
-        r31 = np.sqrt(x31**2 + y31**2 + z31**2)
-        # Normalized unit vector in direction of M31
-        u = x31/r31
-        v = y31/r31
-        w = z31/r31
-
-        # https://sites.google.com/site/glennmurray/Home/rotation-matrices-and-formulas/rotation-about-an-arbitrary-axis-in-3-dimensions
-        # Rotate vector about z-axis to put it into the xz-plane
-        Txz = np.array([[ u/np.sqrt(u**2+v**2), v/np.sqrt(u**2+v**2), 0],
-                        [-v/np.sqrt(u**2+v**2), u/np.sqrt(u**2+v**2), 0],
-                        [0,0,1]])
-        # Rotate vector into the z-axis, about y-axis
-        Tz = np.array([[w, 0, -np.sqrt(u**2+v**2)],
-                       [0,1,0],
-                       [np.sqrt(u**2+v**2), 0, w]])
-        # Rotate about new z-axis by arbitrary angle psi
-        Rz = np.array([[np.cos(psi), -np.sin(psi), 0],
-                       [np.sin(psi),  np.cos(psi), 0],
-                       [0,0,1]])
-        # Rotate vector out of z-axis to desired theta
-        Ttheta = np.array([[ np.cos(m31_theta), 0, np.sin(m31_theta)],
-                          [0,1,0],
-                          [-np.sin(m31_theta), 0, np.cos(m31_theta)]])
-        # Rotate about z axis to get desired phi
-        Tphi = np.array([[np.cos(m31_phi), -np.sin(m31_phi), 0],
-                         [np.sin(m31_phi),  np.cos(m31_phi), 0],
-                         [0,0,1]])
-
-        transform = np.linalg.multi_dot((Tphi, Ttheta, Rz, Tz, Txz))
-
-        # Apply to all halos
-        xp, yp, zp = np.dot(transform, np.array((self.x, self.y, self.z)))
-        phi = np.arctan2(yp, xp)
-        phi = np.array([(p if p>0 else p+2*np.pi) for p in phi])
-        r = np.sqrt(xp**2 + yp**2 + zp**2)
-        theta = np.arccos(zp/r)
-        ra = np.degrees(phi)
-        dec = 90-np.degrees(theta)
-
-        return ra, dec
-    """
     def ra_dec(self, psi=0):
         transform = self.halos.rotation(psi)
         xp, yp, zp = np.dot(transform, np.array((self.x, self.y, self.z)))
@@ -179,10 +130,10 @@ if __name__ == '__main__':
 
     if args.table or args.count:
         sats = Satellites(args.pair)
-        close_cut = (sats.distance > 300)
-        far_cut = (sats.distance < 2000)
-        #close_cut = (sats.distance <= 300)
-        #far_cut = np.tile(True, len(sats))
+        #close_cut = (sats.distance > 300)
+        #far_cut = (sats.distance < 2000)
+        close_cut = (sats.distance <= 300)
+        far_cut = np.tile(True, len(sats))
         cut = close_cut & far_cut
 
     if args.table:
