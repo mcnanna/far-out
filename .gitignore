@@ -1,6 +1,4 @@
 *.swp
 *.pyc
-*.png
-*.gif
 .DS_Store
 .ipynb_checkpoints
