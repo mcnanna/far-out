@@ -8,7 +8,7 @@ import copy
 import ugali.utils.healpix
 import astropy.io.fits as fits
 import load_data
-import patch_analysis
+import significance
 import argparse
 import utils
 import matplotlib.pyplot as plt
@@ -130,17 +130,17 @@ if __name__ == '__main__':
 
     if args.table or args.count:
         sats = Satellites(args.pair)
-        #close_cut = (sats.distance > 300)
-        #far_cut = (sats.distance < 2000)
-        close_cut = (sats.distance <= 300)
-        far_cut = np.tile(True, len(sats))
+        close_cut = (sats.distance > 300)
+        far_cut = (sats.distance < 2000)
+        #close_cut = (sats.distance <= 300)
+        #far_cut = np.tile(True, len(sats))
         cut = close_cut & far_cut
 
     if args.table:
         print '\n Excluding {} satelites closer than 300 kpc and {} beyond 2000 kpc\n'.format(sum(~close_cut), sum(~far_cut))
         subprocess.call('mkdir -p sim_results/{}/'.format(args.pair).split())
         print "\nCalculating significances..."
-        patch_analysis.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut],  aperature_shape='ellipse', aperature_type='factor', outname='sim_results/{}/'.format(args.pair)+args.fname)
+        significance.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut], outname='sim_results/{}/'.format(args.pair)+args.fname)
 
     if args.count:
         sigma_table = fits.open('sim_results/{}/'.format(args.pair)+args.fname+'.fits')[1].data
