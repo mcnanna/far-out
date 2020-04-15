@@ -33,16 +33,8 @@ matplotlib.rcParams['font.family'] = 'serif'
 plt.ion()
 NSIDE = 4096
 
-patch = load_data.Patch()
-# For ease of typing:
-stars, galaxies = patch.stars, patch.galaxies
-center_ra, center_dec = patch.center_ra, patch.center_dec
-mag = patch.mag
-magerr = patch.magerr
-
 class SimSatellite:
-    def __init__(lon_centroid, lat_centroid, distance, abs_mag, r_physical):
-        inputs = load_data.Inputs()
+    def __init__(self, inputs, lon_centroid, lat_centroid, distance, abs_mag, r_physical):
         # Stolen from ugali/scratch/simulation/simulate_population.py. Look there for a more general function,
         # which uses maglims, extinction, stuff like that
         """
@@ -137,270 +129,234 @@ class SimSatellite:
         self.abs_mag_realized = abs_mag_realized
         self.surface_brightness_realized = surface_brightness_realized
         self.flag_too_extended = flag_too_extended
+        self.iso = iso
 
 
 class Dataset:
-    def __init__(patch, *sats):
-    iso = Isochrone(distance)
-    sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
-    """    
-    lon = sat_stars['lon']
-    lat = sat_stars['lat']
-    mag_g = sat_stars['mag_g']
-    mag_r = sat_stars['mag_r']
-    mag_i = sat_stars['mag_i']
-    mag_g_err = sat_stars['mag_g_err']
-    mag_r_err = sat_stars['mag_r_err']
-    mag_i_err = sat_stars['mag_i_err']
-    cut_sat = utils.cut(iso, mag_g, mag_r, mag_i, mag_g_err, mag_r_err, mag_i_err)
-    # Apply isochrone and color cut to field stars
+    # Stolen from simple, simple_utils.py, find_peaks and compute_char_density, also search_algorithm.py search_by_distance, etc
+    def __init__(self, patch, *sats):
+        self.patch = patch
+        stars = patch.stars
+        mag = patch.mag
+        magerr = patch.magerr
 
-    cut_field = utils.cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')], stars[magerr('g')], stars[magerr('r')], stars[magerr('i')])
-    """ 
-    ### Significance
+        # Make one combined catalog
+        self.proj = ugali.utils.projector.Projector(patch.center_ra, patch.center_dec)
+        ra = stars['RA']
+        dec = stars['DEC']
+        x, y = self.proj.sphereToImage(ra, dec)
+        g = stars[mag('g')]
+        r = stars[mag('r')]
+        i = stars[mag('i')]
+        gerr = stars[magerr('g')]
+        rerr = stars[magerr('r')]
+        ierr = stars[magerr('i')]
 
-    ###START NEW CODE###
-    # Stolen from simple, simple_utils.py, find_peaks and compute_char_density
+        for sat in sats:
+            x_sat, y_sat = self.proj.sphereToImage(sat.stars['lon'], sat.stars['lat'])
+            ra = np.concatenate((ra, sat.stars['lon']))
+            dec = np.concatenate((dec, sat.stars['lat']))
+            x = np.concatenate((x, x_sat))
+            y = np.concatenate((y, y_sat))
+            g = np.concatenate((g, sat.stars['mag_g']))
+            r = np.concatenate((r, sat.stars['mag_r']))
+            i = np.concatenate((i, sat.stars['mag_i']))
+            gerr = np.concatenate((gerr, sat.stars['mag_g_err']))
+            rerr = np.concatenate((rerr, sat.stars['mag_r_err']))
+            ierr = np.concatenate((ierr, sat.stars['mag_i_err']))
 
-    # Make one combined catalog
-    dtype = [('ra',float),('dec',float),('mag_g',float),('mag_r',float),('mag_i',float),('mag_g_err',float),('mag_r_err',float),('mag_i_err',float)]
-    cat = np.array([np.concatenate((stars['RA'], sat_stars['lon'])),
-                    np.concatenate((stars['DEC'], sat_stars['lat'])),
-                    np.concatenate((stars[mag('g')], sat_stars['mag_g'])),
-                    np.concatenate((stars[mag('r')], sat_stars['mag_r'])),
-                    np.concatenate((stars[mag('i')], sat_stars['mag_i'])),
-                    np.concatenate((stars[magerr('g')], sat_stars['mag_g_err'])),
-                    np.concatenate((stars[magerr('r')], sat_stars['mag_r_err'])),
-                    np.concatenate((stars[magerr('i')], sat_stars['mag_i_err']))])
-    cat = np.core.records.fromarrays(cat, dtype)
-    cut_cat = utils.cut(iso, cat['mag_g'], cat['mag_r'], cat['mag_i'], cat['mag_g_err'], cat['mag_r_err'], cat['mag_i_err'])
+        dtype = [('ra',float),('dec',float),('x',float),('y',float),('mag_g',float),('mag_r',float),('mag_i',float),('mag_g_err',float),('mag_r_err',float),('mag_i_err',float)]
+        cat = np.array([ra, dec, x, y, g, r, i, gerr, rerr, ierr])
+        self.catalog = np.core.records.fromarrays(cat, dtype)
 
-    # Bins star counts
-    proj = ugali.utils.projector.Projector(center_ra, center_dec)
-    x, y = proj.sphereToImage(cat[cut_cat]['ra'], cat[cut_cat]['dec'])
-
-    char_density_region = characteristic_density_region(cat[cut_cat]['ra'], cat[cut_cat]['dec'], region_size = 1.0) # TODO: Increase region size for larger dataset
-
-
-
-def characteristic_density_region(ras, decs, region_size):
-    # Convert ra/dec into x/y coordinates
-    proj = ugali.utils.projector.Projector(center_ra, center_dec)
-    x, y = proj.sphereToImage(ras, decs)
-
-    delta_x_background = 6./60.
-    area_background = delta_x_background**2 # Chunk size in square degrees
-    region_size = 1.0 # degrees TODO: make bigger with more data probably
-    bins_background = np.arange(-region_size/2., region_size/2.+1e-10, delta_x_background)
-    h_background = np.histogram2d(x, y, bins=[bins_background,bins_background])[0]
-    n_background = h_background[h_background > 0].flatten()
-    characteristic_density = np.median(n_background)/area_background # per square degree
-
-def find_peaks(ras, decs, region_size): 
-    proj = ugali.utils.projector.Projector(center_ra, center_dec)
-    x, y = proj.sphereToImage(ras, decs)
-
-    # Find peaks
-    delta_x = 0.01 # degrees
-    area = delta_x**2
-    bins = np.arange(-region_size/2., region_size/2.+1e-10, delta_x)
-    centers = 0.5*(bins[:-1] + bins[1:])
-
-    h = np.histogram2d(x, y, bins=[bins, bins])[0]
-    smoothing = 2./60. # degrees
-    h_g = scipy.ndimage.filters.gaussian_filter(h, smoothing / delta_x)
-
-    factor_array = np.arange(1., 5., 0.05)
-    # Create spatial grid and convert to ra/dec values
-    yy, xx = np.meshgrid(centers, centers)
-    #rara, decdec = proj.imageToSphere(xx.flatten(), yy.flatten())
-    # restrict to single healpixel?   cutcut = (ugali.utils.healpix.angToPix(nside, rara, decdec) == pix_nside_select).reshape(xx.shape)
-    cutcut = 1
-    threshold_density = 5 * characteristic_density * area
-    for factor in factor_array:
-        # loops through factors until number of peaks is < 10. 
-        h_region, n_region = scipy.ndimage.measurements.label((h_g * cutcut) > (factor * characteristic_density * area))
-        #print 'factor', factor, n_region, n_region < 10
-        if n_region < 10:
-            threshold_density = factor * characteristic_density * area
-            break
-
-    h_region, n_region = scipy.ndimage.measurements.label((h_g * cutcut) > threshold_density)
-    h_region = np.ma.array(h_region, mask=(h_region < 1))
-
-    x_peak_array = []
-    y_peak_array = []
-    angsep_peak_array = []
-
-    # Loop over number of found peaks to build arrays
-    for idx in range(1, n_region+1): # loop over peaksa go 
-        index_peak = np.argmax(h_g * (h_region == idx))
-        x_peak, y_peak = xx.flatten()[index_peak], yy.flatten()[index_peak]
-        angsep_peak = np.sqrt((x - x_peak)**2 + (y - y_peak)**2) # Each element in this array is a list of the angseps of each star from the peak location
-
-        x_peak_array.append(x_peak)
-        y_peak_array.append(y_peak)
-        angsep_peak_array.append(angsep_peak)
+    def __len__(self):
+        return(len(self.catalog))
+    def __getitem__(self, key):
+        return self.catalog[key]
+    def __setitem__(self, key, val):
+        self.catalog[key] = val
 
 
-
-def calc_sigma(inputs, distance, abs_mag, r_physical, aperture_in=1, aperture_type='factor', aperture_shape='circle', plot=False, outname=None):
-    """ aperture_shape determines shape of the aperture. In the case of ellipse, will cheat by using known position angle.
-    If aperture_type is factor, the aperture will have r=aperture*a_h
-    If aperture_type is radius, the aperture will have r=aperture (in degrees)"""
-
-    iso = Isochrone(distance)
-    sat_stars, a_h, ellipticity, position_angle, abs_mag_realized, surface_brightness_realized, flag_too_extended = simSatellite(inputs, center_ra, center_dec, distance, abs_mag, r_physical)
-    """    
-    lon = sat_stars['lon']
-    lat = sat_stars['lat']
-    mag_g = sat_stars['mag_g']
-    mag_r = sat_stars['mag_r']
-    mag_i = sat_stars['mag_i']
-    mag_g_err = sat_stars['mag_g_err']
-    mag_r_err = sat_stars['mag_r_err']
-    mag_i_err = sat_stars['mag_i_err']
-    cut_sat = utils.cut(iso, mag_g, mag_r, mag_i, mag_g_err, mag_r_err, mag_i_err)
-    # Apply isochrone and color cut to field stars
-
-    cut_field = utils.cut(iso, stars[mag('g')], stars[mag('r')], stars[mag('i')], stars[magerr('g')], stars[magerr('r')], stars[magerr('i')])
-    """ 
-    ### Significance
-
-    ###START NEW CODE###
-    # Stolen from simple, simple_utils.py, find_peaks and compute_char_density
-
-    # Make one combined catalog
-    dtype = [('ra',float),('dec',float),('mag_g',float),('mag_r',float),('mag_i',float),('mag_g_err',float),('mag_r_err',float),('mag_i_err',float)]
-    cat = np.array([np.concatenate((stars['RA'], sat_stars['lon'])),
-                    np.concatenate((stars['DEC'], sat_stars['lat'])),
-                    np.concatenate((stars[mag('g')], sat_stars['mag_g'])),
-                    np.concatenate((stars[mag('r')], sat_stars['mag_r'])),
-                    np.concatenate((stars[mag('i')], sat_stars['mag_i'])),
-                    np.concatenate((stars[magerr('g')], sat_stars['mag_g_err'])),
-                    np.concatenate((stars[magerr('r')], sat_stars['mag_r_err'])),
-                    np.concatenate((stars[magerr('i')], sat_stars['mag_i_err']))])
-    cat = np.core.records.fromarrays(cat, dtype)
-    cut_cat = utils.cut(iso, cat['mag_g'], cat['mag_r'], cat['mag_i'], cat['mag_g_err'], cat['mag_r_err'], cat['mag_i_err'])
-
-    # Bins star counts
-    proj = ugali.utils.projector.Projector(center_ra, center_dec)
-    x, y = proj.sphereToImage(cat[cut_cat]['ra'], cat[cut_cat]['dec'])
-
-    char_density_region = characteristic_density_region(cat[cut_cat]['ra'], cat[cut_cat]['dec'], region_size = 1.0) # TODO: Increase region size for larger dataset
+    def reduced_catalog(self, iso):
+        cat = self.catalog
+        cut_cat = utils.cut(iso, cat['mag_g'], cat['mag_r'], cat['mag_i'], cat['mag_g_err'], cat['mag_r_err'], cat['mag_i_err'])
+        return self.catalog[cut_cat]
 
 
-    # Find peaks
-    delta_x = 0.01 # degrees
-    area = delta_x**2
-    region_size = 1.0 # degress, side length of square patch of sky TODO: Adjust for a larger data set
-    bins = np.arange(-region_size/2., region_size/2.+1e-10, delta_x)
-    centers = 0.5*(bins[:-1] + bins[1:])
+    def compute_characteristic_density(self, iso=None, region_size=1.0): # TODO: For now, region size is set. Could be increased for larger dataset
+        if iso is not None:
+            cat = self.reduced_catalog(iso)
+        else:
+            cat = self.catalog
 
-    h = np.histogram2d(x, y, bins=[bins, bins])[0]
-    smoothing = 2./60. # degrees
-    h_g = scipy.ndimage.filters.gaussian_filter(h, smoothing / delta_x)
+        delta_x_background = 6./60.
+        area_background = delta_x_background**2 # Chunk size in square degrees
+        bins_background = np.arange(-region_size/2., region_size/2.+1e-10, delta_x_background)
+        h_background = np.histogram2d(cat['x'], cat['y'], bins=[bins_background,bins_background])[0]
+        n_background = h_background[h_background > 0].flatten()
 
-    factor_array = np.arange(1., 5., 0.05)
-    # Create spatial grid and convert to ra/dec values
-    yy, xx = np.meshgrid(centers, centers)
-    #rara, decdec = proj.imageToSphere(xx.flatten(), yy.flatten())
-    # restrict to single healpixel?   cutcut = (ugali.utils.healpix.angToPix(nside, rara, decdec) == pix_nside_select).reshape(xx.shape)
-    cutcut = 1
-    threshold_density = 5 * characteristic_density * area
-    for factor in factor_array:
-        # loops through factors until number of peaks is < 10. 
-        h_region, n_region = scipy.ndimage.measurements.label((h_g * cutcut) > (factor * characteristic_density * area))
-        #print 'factor', factor, n_region, n_region < 10
-        if n_region < 10:
-            threshold_density = factor * characteristic_density * area
-            break
-
-    h_region, n_region = scipy.ndimage.measurements.label((h_g * cutcut) > threshold_density)
-    h_region = np.ma.array(h_region, mask=(h_region < 1))
-
-    x_peak_array = []
-    y_peak_array = []
-    angsep_peak_array = []
-
-    # Loop over number of found peaks to build arrays
-    for idx in range(1, n_region+1): # loop over peaksa go 
-        index_peak = np.argmax(h_g * (h_region == idx))
-        x_peak, y_peak = xx.flatten()[index_peak], yy.flatten()[index_peak]
-        angsep_peak = np.sqrt((x - x_peak)**2 + (y - y_peak)**2) # Each element in this array is a list of the angseps of each star from the peak location
-
-        x_peak_array.append(x_peak)
-        y_peak_array.append(y_peak)
-        angsep_peak_array.append(angsep_peak)
+        self.characteristic_density = np.median(n_background)/area_background # per square degree
+        #return characteristic_density
 
 
-    ra_peak_array = np.tile(0., n_region)
-    dec_peak_array = np.tile(0., n_region)
-    aperture_peak_array = np.tile(0., n_region)
-    sig_peak_array = np.tile(0., n_region)
-    n_obs_peak_array = np.tile(0., n_region)
-    n_obs_half_peak_array = np.tile(0., n_region)
-    n_model_peak_array = np.tile(0., n_region)
+    def find_peaks(self, iso=None, region_size=1.0): # TODO: Adjust region size for larger dataset. Not necessarily the same as region_size in characteristic_density
+        if iso is not None:
+            cat = self.reduced_catalog(iso)
+        else:
+            cat = self.catalog
+        self.compute_characteristic_density(iso)
 
-    # Loop through peaks, fit aperture for each one
-    for j in range(n_region):
-        angsep_peak = angsep_peak_array[j]
-        # Compute local characteristic density TODO: annulus for background defined here
-        inner = 0.3 # degrees
-        outer = 0.5 # degrees
-        area_field = np.pi*(outer**2 - inner**2) 
-        n_field = np.sum((angsep_peak > inner) & (angsep_peak < outer))
-        characteristic_density_local = n_field/area_field
+        # Find peaks
+        delta_x = 0.01 # degrees
+        area = delta_x**2
+        bins = np.arange(-region_size/2., region_size/2.+1e-10, delta_x)
+        centers = 0.5*(bins[:-1] + bins[1:])
 
-        # see simple_utils.py, fit_aperture
-        aperture_array = np.arange(0.01, 0.3, 0.01) # degrees TODO: aperture size is scanned over here
-        sig_array = np.tile(0., len(aperture_array))
+        h = np.histogram2d(cat['x'], cat['y'], bins=[bins, bins])[0]
+        smoothing = 2./60. # degrees
+        h_g = scipy.ndimage.filters.gaussian_filter(h, smoothing / delta_x)
 
-        n_obs_array = np.tile(0, len(aperture_array))
-        n_model_array = np.tile(0, len(aperture_array))
-        for i in range(len(aperture_array)): # Loop through aperture sizes
-            aperture = aperture_array[i]
-            n_obs = np.sum(angsep_peak < aperture)
-            n_model = characteristic_density_local * (np.pi * aperture**2)
-            sig_array[i] = np.clip(norm.isf(poisson.sf(n_obs, n_model)), 0., 37.5)
-            n_obs_array[i] = n_obs
-            n_model_array[i] = n_model
+        factor_array = np.arange(1., 5., 0.05)
+        # Create spatial grid and convert to ra/dec values
+        yy, xx = np.meshgrid(centers, centers)
+        # restrict to singel healpixel? I think here we're assuming a scan over healpixels
+        nside = NSIDE
+        rara, decdec = self.proj.imageToSphere(xx.flatten(), yy.flatten())
+        cutcut = (ugali.utils.healpix.angToPix(nside, rara, decdec) == ugali.utils.healpix.angToPix(nside, self.patch.center_ra, self.patch.center_dec)).reshape(xx.shape)
+        #cutcut = 1
+        threshold_density = 5 * self.characteristic_density * area
+        for factor in factor_array:
+            # loops through factors until number of peaks is < 10. 
+            h_region, n_region = scipy.ndimage.measurements.label((h_g * cutcut) > (factor * self.characteristic_density * area))
+            #print 'factor', factor, n_region, n_region < 10
+            if n_region < 10:
+                threshold_density = factor * self.characteristic_density * area
+                break
 
-        index_peak = np.argmax(sig_array)
-        sig_peak = sig_array[index_peak]
-        aperture_peak = aperture_array[index_peak]
-        n_obs_peak = n_obs_array[index_peak]
-        n_model_peak = n_model_array[index_peak]
-        n_obs_half_peak = np.sum(angsep_peak < 0.5*aperture_peak)
-        ra_peak, dec_peak = proj.imageToSphere(x_peak_array[j], y_peak_array[j])
+        h_region, n_region = scipy.ndimage.measurements.label((h_g * cutcut) > threshold_density)
+        h_region = np.ma.array(h_region, mask=(h_region < 1))
 
-        ra_peak_array[j] = ra_peak
-        dec_peak_array[j] = dec_peak
-        aperture_peak_array[j] = aperture_peak
-        sig_peak_array[j] = sig_peak
-        n_obs_peak_array[j] = n_obs_peak
-        n_obs_half_peak_array[j] = n_obs_half_peak
-        n_model_peak_array[j] = n_model_peak
+        x_peak_array = []
+        y_peak_array = []
+        angsep_peak_array = []
 
-    # Sort by significance
-    index_sort = np.argsort(sig_peak_array)[::-1]
-    ra_peak_array = ra_peak_array[index_sort]
-    dec_peak_array = dec_peak_array[index_sort]
-    aperture_peak_array = aperture_peak_array[index_sort]
-    sig_peak_array = sig_peak_array[index_sort]
-    n_obs_peak_array = n_obs_peak_array[index_sort]
-    n_obs_half_peak_array = n_obs_half_peak_array[index_sort]
-    n_model_peak_array = n_model_peak_array[index_sort]
+        # Loop over number of found peaks to build arrays
+        for idx in range(1, n_region+1): # loop over peaksa go 
+            index_peak = np.argmax(h_g * (h_region == idx))
+            x_peak, y_peak = xx.flatten()[index_peak], yy.flatten()[index_peak]
+            angsep_peak = np.sqrt((cat['x'] - x_peak)**2 + (cat['y'] - y_peak)**2) # Each element in this array is a list of the angseps of each star from the peak location
 
-    # Consolidate peaks
-    for i in range(len(sig_peak_array)):
-        if sig_peak_array[i] < 0:
-            continue
-        angsep = ugali.utils.projector.angsep(ra_peak_array[i], dec_peak_array[i], ra_peak_array, dec_peak_array)
-        sig_peak_array[(angsep < aperture_peak_array[i]) & (np.arange(len(sig_peak_array)) > i)] = -1.
-        #sig_peak_array[(angsep < 0.5) & (np.arange(len(sig_peak_array)) > ii)] = -1. # 0.5 deg radius
+            x_peak_array.append(x_peak)
+            y_peak_array.append(y_peak)
+            angsep_peak_array.append(angsep_peak)
 
-    ###END NEW CODE###
+        self.x_peak_array = x_peak_array
+        self.y_peak_array = y_peak_array
+        self.angsep_peak_array = angsep_peak_array
+        self.n_peaks = n_region
+
+        #return x_peak_array, y_peak_array, angsep_peak_array, h_g
+
+
+    def fit_peaks(self, iso=None):
+        #x_peak_array, y_peak_array, angsep_peak_array, h_g = find_peaks(iso)
+        self.find_peaks(iso)
+
+        ra_peak_array = np.tile(0., self.n_peaks)
+        dec_peak_array = np.tile(0., self.n_peaks)
+        aperture_peak_array = np.tile(0., self.n_peaks)
+        sig_peak_array = np.tile(0., self.n_peaks)
+        n_obs_peak_array = np.tile(0., self.n_peaks)
+        n_obs_half_peak_array = np.tile(0., self.n_peaks)
+        n_model_peak_array = np.tile(0., self.n_peaks)
+
+        # Loop through peaks, fit aperture for each one
+        for j in range(self.n_peaks):
+            angsep_peak = self.angsep_peak_array[j]
+            # Compute local characteristic density TODO: annulus for background defined here
+            inner = 0.3 # degrees
+            outer = 0.5 # degrees
+            area_field = np.pi*(outer**2 - inner**2) 
+            n_field = np.sum((angsep_peak > inner) & (angsep_peak < outer))
+            characteristic_density_local = n_field/area_field
+
+            # see simple_utils.py, fit_aperture
+            aperture_array = np.arange(0.01, 0.3, 0.01) # degrees TODO: aperture size is scanned over here
+            sig_array = np.tile(0., len(aperture_array))
+
+            n_obs_array = np.tile(0, len(aperture_array))
+            n_model_array = np.tile(0, len(aperture_array))
+            for i in range(len(aperture_array)): # Loop through aperture sizes
+                aperture = aperture_array[i]
+                n_obs = np.sum(angsep_peak < aperture)
+                n_model = characteristic_density_local * (np.pi * aperture**2)
+                sig_array[i] = np.clip(norm.isf(poisson.sf(n_obs, n_model)), 0., 37.5)
+                n_obs_array[i] = n_obs
+                n_model_array[i] = n_model
+
+            index_peak = np.argmax(sig_array)
+            sig_peak = sig_array[index_peak]
+            aperture_peak = aperture_array[index_peak]
+            n_obs_peak = n_obs_array[index_peak]
+            n_model_peak = n_model_array[index_peak]
+            n_obs_half_peak = np.sum(angsep_peak < 0.5*aperture_peak)
+            ra_peak, dec_peak = self.proj.imageToSphere(self.x_peak_array[j], self.y_peak_array[j])
+
+            ra_peak_array[j] = ra_peak
+            dec_peak_array[j] = dec_peak
+            aperture_peak_array[j] = aperture_peak
+            sig_peak_array[j] = sig_peak
+            n_obs_peak_array[j] = n_obs_peak
+            n_obs_half_peak_array[j] = n_obs_half_peak
+            n_model_peak_array[j] = n_model_peak
+
+        # Sort by significance
+        index_sort = np.argsort(sig_peak_array)[::-1]
+        ra_peak_array = ra_peak_array[index_sort]
+        dec_peak_array = dec_peak_array[index_sort]
+        aperture_peak_array = aperture_peak_array[index_sort]
+        sig_peak_array = sig_peak_array[index_sort]
+        n_obs_peak_array = n_obs_peak_array[index_sort]
+        n_obs_half_peak_array = n_obs_half_peak_array[index_sort]
+        n_model_peak_array = n_model_peak_array[index_sort]
+
+        # Consolidate peaks
+        for i in range(len(sig_peak_array)):
+            if sig_peak_array[i] < 0:
+                continue
+            angsep = ugali.utils.projector.angsep(ra_peak_array[i], dec_peak_array[i], ra_peak_array, dec_peak_array)
+            sig_peak_array[(angsep < aperture_peak_array[i]) & (np.arange(len(sig_peak_array)) > i)] = -1.
+
+        self.ra_peak_array = ra_peak_array[sig_peak_array > 0.]
+        self.dec_peak_array = dec_peak_array[sig_peak_array > 0.]
+        self.aperture_peak_array = aperture_peak_array[sig_peak_array > 0.]
+        self.n_obs_peak_array = n_obs_peak_array[sig_peak_array > 0.]
+        self.n_obs_half_peak_array = n_obs_half_peak_array[sig_peak_array > 0.]
+        self.n_model_peak_array = n_model_peak_array[sig_peak_array > 0.]
+        self.sig_peak_array = sig_peak_array[sig_peak_array > 0.] # Update the sig_peak_array last!
+
+        #return ra_peak_array, dec_peak_array, aperture_peak_array, n_obs_peak_array, n_obs_half_peak_array, n_model_peak_array, sig_peak_array
+
+
+def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=None):
+    if inputs is None:
+        inputs = load_data.Inputs()
+    patch = load_data.Patch()
+    sat = SimSatellite(inputs, patch.center_ra, patch.center_dec, distance, abs_mag, r_physical)
+    data = Dataset(patch, sat)
+
+    data.fit_peaks(sat.iso)
+
+    print data.sig_peak_array
+    print data.aperture_peak_array
+    print sat.a_h
+
+    return data
+
+
+def old():
+
+    ###START OLD CODE###
 
     # Backround density
     field_pix = ugali.utils.healpix.angToPix(NSIDE, stars[cut_field]['RA'], stars[cut_field]['DEC'])
