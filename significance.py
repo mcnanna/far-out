@@ -346,20 +346,26 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
     if inputs is None:
         inputs = load_data.Inputs()
     patch = load_data.Patch()
-    sat = SimSatellite(inputs, patch.center_ra, patch.center_dec, distance, abs_mag, r_physical)
+    sat_ra, sat_dec = patch.center_ra, patch.center_dec
+    sat = SimSatellite(inputs, sat_ra, sat_dec, distance, abs_mag, r_physical)
     data = Dataset(patch, sat)
 
     data.fit_peaks(sat.iso)
 
-    #print data.sig_peak_array
-    #print data.aperture_peak_array
-    #print sat.a_h
-
-    if len(data.sig_peak_array) != 1:
+    if len(data.sig_peak_array) == 0:
         sigma, aperture = 0, 0
+        centroid_ra, centroid_dec = patch.center_ra, patch.center_dec
     else:
+        if len(data.sig_peak_array) > 1:
+            message = "Multple peaks found\n"
+            message += "sigma: " + ' '.join(['{:> 6.2f}'.format(s) for s in data.sig_peak_array]) + '\n'
+            message += "   ra: " + ' '.join(['{:> 6.2f}'.format(r) for r in data.ra_peak_array]) + '\n'
+            message += "  dec: " + ' '.join(['{:> 6.2f}'.format(d) for d in data.dec_peak_array])
+            warnings.warn(message)
         sigma = data.sig_peak_array[0]
         aperture = data.aperture_peak_array[0]
+        centroid_ra = data.ra_peak_array[0]
+        centroid_dec = data.dec_peak_array[0]
 
     if plot:
         data.reduce_catalog(sat.iso)
@@ -425,9 +431,9 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
         ### Smoothed plot
         ax = axes[1][0]
         plt.sca(ax)
-        plt.pcolormesh(data.smoothed_hist)
+        plt.pcolormesh(data.smoothed_hist.T) # Transpose orients x/y correctly onto ra/dec
         ticks = [10, 30, 50, 70, 90]
-        tick_labels = [-0.4, -0.2, -0.0, -0.2, -0.4] # These would have to change for a different region size
+        tick_labels = [-0.4, -0.2, -0.0, 0.2, 0.4] # These would have to change for a different region size
         ax.set_xticks(ticks)
         ax.set_yticks(ticks)
         ax.set_xticklabels(tick_labels)
@@ -440,12 +446,12 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
             plt.sca(ax)
 
             if zoom:
-                plt.scatter(data['ra'][sat_in]-patch.center_ra, data['dec'][sat_in]-patch.center_dec, s=6, color='black', label='Included satellite stars', zorder=5)
-                plt.scatter(data['ra'][fld_in]-patch.center_ra, data['dec'][fld_in]-patch.center_dec, s=4, color='red', label='Included field stars', zorder=3)
-                plt.scatter(data['ra'][sat_ex]-patch.center_ra, data['dec'][sat_ex]-patch.center_dec, s=2, color='0.3', label='Excluded satellite stars', zorder=4)
-                plt.scatter(data['ra'][fld_ex]-patch.center_ra, data['dec'][fld_ex]-patch.center_dec, s=0.5, color='coral', label='Excluded field stars', zorder=2)
+                plt.scatter(data['ra'][sat_in]-centroid_ra, data['dec'][sat_in]-centroid_dec, s=6, color='black', label='Included satellite stars', zorder=5)
+                plt.scatter(data['ra'][fld_in]-centroid_ra, data['dec'][fld_in]-centroid_dec, s=4, color='red', label='Included field stars', zorder=3)
+                plt.scatter(data['ra'][sat_ex]-centroid_ra, data['dec'][sat_ex]-centroid_dec, s=2, color='0.3', label='Excluded satellite stars', zorder=4)
+                plt.scatter(data['ra'][fld_ex]-centroid_ra, data['dec'][fld_ex]-centroid_dec, s=0.5, color='coral', label='Excluded field stars', zorder=2)
 
-                half_light_ellipse = Ellipse(xy=(0,0), width=2*sat.a_h, height=2*(1-sat.ellipticity)*sat.a_h, angle=90-sat.position_angle, edgecolor='green', linewidth=1.5, linestyle='--', fill=False, zorder=10)
+                half_light_ellipse = Ellipse(xy=(sat_ra-centroid_ra,sat_dec-centroid_dec), width=2*sat.a_h, height=2*(1-sat.ellipticity)*sat.a_h, angle=90-sat.position_angle, edgecolor='green', linewidth=1.5, linestyle='--', fill=False, zorder=10)
                 half_light_ellipse_label = "$a_h = {}'$".format(round(sat.a_h*60, 1))
                 aperture_patch = Circle(xy=(0,0), radius=aperture, edgecolor='green', linewidth=1.5, fill=False, zorder=10)
                 aperture_label = "Aperture ($r = {}'$)".format(round(aperture*60., 1))
@@ -456,8 +462,8 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
                 plt.xlim(-5*sat.a_h, 5*sat.a_h)
                 plt.ylim(-5*sat.a_h, 5*sat.a_h)
             elif not zoom:
-                plt.scatter(data['ra'][sat_in]-patch.center_ra, data['dec'][sat_in]-patch.center_dec, s=3, color='black', label='Included satellite stars', zorder=5)
-                plt.scatter(data['ra'][fld_in]-patch.center_ra, data['dec'][fld_in]-patch.center_dec, s=1, color='red', label='Included field stars', zorder=3)
+                plt.scatter(data['ra'][sat_in]-centroid_ra, data['dec'][sat_in]-centroid_dec, s=3, color='black', label='Included satellite stars', zorder=5)
+                plt.scatter(data['ra'][fld_in]-centroid_ra, data['dec'][fld_in]-centroid_dec, s=1, color='red', label='Included field stars', zorder=3)
                 plt.xlim(-0.5, 0.5)
                 plt.ylim(-0.5, 0.5)
 
@@ -620,23 +626,37 @@ def plot_matrix(fname, *args, **kwargs):
                 mat_diff[i,j] = (line['aperture']-a_h)*60.
 
     def plot(mat, mat_type, fname, *args, **kwargs):
-        if mat_type == 'sigma':
-            if np.max(mat) < 6:
+        plt.figure(figsize=(len(x_vals) + 8,len(y_vals)/1.5))
+
+        if mat_type == 'aperture':
+            cmap = 'viridis'
+            plt.pcolormesh(mat.T, cmap=cmap)
+        else:
+            if mat_type == 'sigma':
+                mn, mid, mx = 0, 6, 37.5
+                norm = matplotlib.colors.Normalize
+            elif mat_type == 'ratio':
+                mn, mid, mx = 1/20., 1, 20
+                norm = matplotlib.colors.LogNorm
+            elif mat_type == 'diff':
+                mn, mid, mx = np.min(mat), 0, np.max(mat)
+                norm = matplotlib.colors.Normalize
+
+            if np.max(mat) < mid:
                 warnings.warn("No satellites above detectabiliy threshold of 6 for kwarg{} {} = {}".format('s' if len(kwargs)>1 else '', ', '.join(kwargs.keys()), ', '.join(map(str, kwargs.values()))))
                 #return
                 cmap = 'Reds_r'
-            elif np.min(mat) > 6:
+            elif np.min(mat) > mid:
                 warnings.warn("All satellites above detectabiliy threshold of 6 for kwarg{} {} = {}".format('s' if len(kwargs)>1 else '', ', '.join(kwargs.keys()), ', '.join(map(str, kwargs.values()))))
                 #return 
                 cmap = 'Blues'
             else:
-                cmap = plot_utils.shiftedColorMap('seismic_r', np.min(mat), np.max(mat), 6)
-        else:
-            cmap = 'viridis'
+                if norm == matplotlib.colors.Normalize:
+                    cmap = plot_utils.shiftedColorMap('seismic_r', mn, mx, mid)
+                elif norm == matplotlib.colors.LogNorm:
+                    cmap = plot_utils.shiftedColorMap('seismic_r', np.log10(mn), np.log10(mx), np.log10(mid))
+            plt.pcolormesh(mat.T, cmap=cmap, norm=norm(vmin=mn, vmax=mx))
 
-        #plt.figure(figsize=(len(x_vals)/2. + 3,len(y_vals)/2.))
-        plt.figure(figsize=(len(x_vals) + 8,len(y_vals)/1.5))
-        plt.pcolormesh(mat.T, cmap=cmap)
         ax = plt.gca()
 
         xticks = np.arange(len(x_vals)) + 0.5
