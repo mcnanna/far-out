@@ -498,7 +498,7 @@ def calc_sigma_trials(distance, abs_mag, r_physical, n_trials=10, percent_bar=Fa
     return np.mean(sigmas), np.std(sigmas), sigmas
 
 
-def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=1):
+def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=1, mode='new'):
     """Input arrays are all the same size. Runs through i in range(len(array)) and calcs sigma for the ith satellite"""
 
     ld = len(distances)
@@ -524,7 +524,10 @@ def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=
                 skipped_sats.append((i,round(m,2)))
                 sigma, aperture = 37.5, 0
             else:
-                sigma, aperture = calc_sigma(d, m, r, plot=False, inputs=inputs)
+                if mode == 'new':
+                    sigma, aperture = calc_sigma(d, m, r, plot=False, inputs=inputs)
+                elif mode == 'old':
+                    sigma = calc_sigma_old(d, m, r, plot=False, inputs=inputs)
             sigma_table.append((d,m,r,sigma,aperture))
         percent.bar(i+1, ld)
     print '{} sats skipped due to large abs_mag'.format(len(skipped_sats)) + (':' if len(skipped_sats)>0 else '')
