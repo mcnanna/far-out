@@ -459,8 +459,10 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
                 ax.add_patch(aperture_patch)
                 plt.legend((half_light_ellipse, aperture_patch), (half_light_ellipse_label, aperture_label), loc='upper right')
 
-                plt.xlim(-5*sat.a_h, 5*sat.a_h)
-                plt.ylim(-5*sat.a_h, 5*sat.a_h)
+                lim = 2*max(sat.a_h, aperture)
+                plt.xlim(-lim, lim)
+                plt.ylim(-lim, lim)
+
             elif not zoom:
                 plt.scatter(data['ra'][sat_in]-centroid_ra, data['dec'][sat_in]-centroid_dec, s=3, color='black', label='Included satellite stars', zorder=5)
                 plt.scatter(data['ra'][fld_in]-centroid_ra, data['dec'][fld_in]-centroid_dec, s=1, color='red', label='Included field stars', zorder=3)
