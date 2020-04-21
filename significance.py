@@ -496,7 +496,7 @@ def calc_sigma_trials(distance, abs_mag, r_physical, n_trials=10, percent_bar=Fa
     return np.mean(sigmas), np.std(sigmas), sigmas
 
 
-def create_sigma_table(distances, abs_mags, r_physicals, outname='sigma_table', n_trials=1):
+def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=1):
     """Input arrays are all the same size. Runs through i in range(len(array)) and calcs sigma for the ith satellite"""
 
     ld = len(distances)
@@ -533,10 +533,13 @@ def create_sigma_table(distances, abs_mags, r_physicals, outname='sigma_table', 
     if n_trials == 1:
         dtype.append(('aperture',float))
     sigma_table = np.array(sigma_table, dtype=dtype)
-    fits.writeto(outname+'.fits', sigma_table, overwrite=True)
+    if outname is not None:
+        fits.writeto(outname+'.fits', sigma_table, overwrite=True)
+
+    return sigma_table
     
 
-def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix', n_trials=1):
+def create_sigma_matrix(distances, abs_mags, r_physicals, outname=None, n_trials=1):
     """ Scans over all combinations of distance, abs_mag, r_physical, and apertures in the input arrays"""
     n_d = len(distances)
     n_m = len(abs_mags)
@@ -567,7 +570,10 @@ def create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix'
     if n_trials == 1:
         dtype.append(('aperture', float))
     sigma_fits = np.array(sigma_fits, dtype=dtype)
-    fits.writeto(outname+'.fits', sigma_fits, overwrite=True)
+    if outname is not None:
+        fits.writeto(outname+'.fits', sigma_fits, overwrite=True)
+
+    retuen simga_fits
 
 
 def plot_matrix(fname, *args, **kwargs):

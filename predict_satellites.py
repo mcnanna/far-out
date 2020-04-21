@@ -115,6 +115,23 @@ class Satellites:
         return utils.ra_dec(xp, yp, zp)
 
 
+def main(pair):
+    sats = Satellites(pair)
+    if pair == 'RJ':
+        psi = np.radians(66)
+    elif pair == 'TL':
+        psi = np.radians(330)
+    sat_ras, sat_decs = sats.ra_dec(psi)
+
+    close_cut = (sats.distance > 300)
+    far_cut = (sats.distance < 2000)
+    footprint = ugali.utils.healpix.read_map('datafiles/healpix_nest_y6a1_footprint_griz_frac05_nimages2.fits.gz')
+    pix = ugali.utils.healpix.angToPix(4096, sat_ras, sat_decs, nest=True)
+    footprint_cut = footprint[pix] > 0
+    
+    cut = footprint_cut & close_cut# & far_cut   
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('pair')
