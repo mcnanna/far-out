@@ -573,7 +573,7 @@ def create_sigma_matrix(distances, abs_mags, r_physicals, outname=None, n_trials
     if outname is not None:
         fits.writeto(outname+'.fits', sigma_fits, overwrite=True)
 
-    retuen simga_fits
+    return simga_fits
 
 
 def plot_matrix(fname, *args, **kwargs):
