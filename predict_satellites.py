@@ -131,8 +131,8 @@ def main(pair):
     
     cut = footprint_cut & close_cut# & far_cut   
 
-    table_new = significance.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut], mode='new')
     table_old = significance.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut], mode='old')
+    table_new = significance.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut], mode='new')
 
     return table_new, table_old
 

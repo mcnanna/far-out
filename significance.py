@@ -526,16 +526,17 @@ def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=
             else:
                 if mode == 'new':
                     sigma, aperture = calc_sigma(d, m, r, plot=False, inputs=inputs)
+                    sigma_table.append((d,m,r,sigma,aperture))
                 elif mode == 'old':
                     sigma = calc_sigma_old(d, m, r, plot=False, inputs=inputs)
-            sigma_table.append((d,m,r,sigma,aperture))
+                    sigma_table.append((d,m,r,sigma))
         percent.bar(i+1, ld)
     print '{} sats skipped due to large abs_mag'.format(len(skipped_sats)) + (':' if len(skipped_sats)>0 else '')
     if len(skipped_sats)>0:
         print np.array(skipped_sats)
 
     dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('sigma',float)]
-    if n_trials == 1:
+    if n_trials == 1 and mode == 'new':
         dtype.append(('aperture',float))
     sigma_table = np.array(sigma_table, dtype=dtype)
     if outname is not None:
@@ -866,7 +867,6 @@ if __name__ == '__main__':
         main()
 
 
-"""
 def calc_sigma_old(distance, abs_mag, r_physical, plot=False, outname=None, inputs=None, aperture_in=1, aperture_type='factor', aperture_shape='circle'):
     if inputs is None:
         inputs = load_data.Inputs()
@@ -1060,4 +1060,4 @@ def background_analysis(maglim=None, nside=2048):
 #for m in np.linspace(23.0, 25.0, 0.2):
 #    print m
 #    background_analysis(maglim=m)
-"""
+
