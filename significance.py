@@ -26,6 +26,8 @@ import load_data
 import utils
 from isochrone import Isochrone
 
+import time
+
 matplotlib.rcParams['xtick.labelsize'] = 12
 matplotlib.rcParams['ytick.labelsize'] = 12
 matplotlib.rcParams['text.usetex'] = True
@@ -203,86 +205,108 @@ class Dataset:
 
 
     def find_peaks(self, iso=None, region_size=1.0): # TODO: Adjust region size for larger dataset. Not necessarily the same as region_size in characteristic_density
+        t0 = time.time()
         if iso is not None:
             cat = self.reduce_catalog(iso)
         else:
             cat = self.catalog
         self.compute_characteristic_density(iso)
-
+        
         # Find peaks
-        delta_x = 0.01 # degrees
+        delta_x = 0.003 # degrees
         area = delta_x**2
         bins = np.arange(-region_size/2., region_size/2.+1e-10, delta_x)
         centers = 0.5*(bins[:-1] + bins[1:])
-
         h = np.histogram2d(cat['x'], cat['y'], bins=[bins, bins])[0]
-        smoothing = 2./60. # degrees
+        smoothing = 1/60. # degrees
         h_g = scipy.ndimage.filters.gaussian_filter(h, smoothing / delta_x)
 
         factor_array = np.arange(1., 5., 0.05)
         # Create spatial grid and convert to ra/dec values
         yy, xx = np.meshgrid(centers, centers)
         # restrict to singel healpixel? I think here we're assuming a scan over healpixels
-        nside = NSIDE
-        rara, decdec = self.proj.imageToSphere(xx.flatten(), yy.flatten())
-        cutcut = (ugali.utils.healpix.angToPix(nside, rara, decdec) == ugali.utils.healpix.angToPix(nside, self.patch.center_ra, self.patch.center_dec)).reshape(xx.shape)
-        #cutcut = 1
+        nside = 32
+        pix_nside_select = ugali.utils.healpix.angToPix(nside, self.patch.center_ra, self.patch.center_dec)
+        #rara, decdec = self.proj.imageToSphere(xx.flatten(), yy.flatten())
+        #cutcut = (ugali.utils.healpix.angToPix(nside, rara, decdec) == pix_nside_select).reshape(xx.shape)
         threshold_density = 5 * self.characteristic_density * area
         for factor in factor_array:
             # loops through factors until number of peaks is < 10. 
-            h_region, n_region = scipy.ndimage.measurements.label((h_g * cutcut) > (factor * self.characteristic_density * area))
+            h_region, n_region = scipy.ndimage.measurements.label((h_g) > (factor * self.characteristic_density * area))
             #print 'factor', factor, n_region, n_region < 10
             if n_region < 10:
                 threshold_density = factor * self.characteristic_density * area
                 break
-
-        h_region, n_region = scipy.ndimage.measurements.label((h_g * cutcut) > threshold_density)
+        h_region, n_region = scipy.ndimage.measurements.label((h_g) > threshold_density)
         h_region = np.ma.array(h_region, mask=(h_region < 1))
 
         x_peak_array = []
         y_peak_array = []
         angsep_peak_array = []
-
+        ra_peak_array = []
+        dec_peak_array = []
         # Loop over number of found peaks to build arrays
-        for idx in range(1, n_region+1): # loop over peaksa go 
+        for idx in range(1, n_region+1): # loop over peaks 
             index_peak = np.argmax(h_g * (h_region == idx))
             x_peak, y_peak = xx.flatten()[index_peak], yy.flatten()[index_peak]
+            ra_peak, dec_peak = self.proj.imageToSphere(x_peak, y_peak)
+            if ugali.utils.healpix.angToPix(nside, ra_peak, dec_peak) != pix_nside_select:
+                continue
             angsep_peak = np.sqrt((cat['x'] - x_peak)**2 + (cat['y'] - y_peak)**2) # Each element in this array is a list of the angseps of each star from the peak location
 
             x_peak_array.append(x_peak)
             y_peak_array.append(y_peak)
             angsep_peak_array.append(angsep_peak)
+            ra_peak_array.append(ra_peak)
+            dec_peak_array.append(dec_peak)
 
-        self.x_peak_array = x_peak_array
-        self.y_peak_array = y_peak_array
+        self.ra_peak_array = np.asarray(ra_peak_array)
+        self.dec_peak_array = np.asarray(dec_peak_array)
         self.angsep_peak_array = angsep_peak_array
-        self.n_peaks = n_region
+        self.n_peaks = len(ra_peak_array)
         self.smoothed_hist = h_g
+        
+        tinf = time.time()
+        print('find: {}'.format(tinf-t0))
 
         #return x_peak_array, y_peak_array, angsep_peak_array, h_g
 
 
     def fit_peaks(self, iso=None):
-        #x_peak_array, y_peak_array, angsep_peak_array, h_g = find_peaks(iso)
         self.find_peaks(iso)
+        t0 = time.time()
 
-        ra_peak_array = np.tile(0., self.n_peaks)
-        dec_peak_array = np.tile(0., self.n_peaks)
+        #ra_peak_array = np.tile(0., self.n_peaks)
+        #dec_peak_array = np.tile(0., self.n_peaks)
         aperture_peak_array = np.tile(0., self.n_peaks)
         sig_peak_array = np.tile(0., self.n_peaks)
         n_obs_peak_array = np.tile(0., self.n_peaks)
         n_obs_half_peak_array = np.tile(0., self.n_peaks)
         n_model_peak_array = np.tile(0., self.n_peaks)
+        
+        # TODO: THIS NEEDS TO BE INSIDE THE FOR LOOP, USING THE COMMENTED OUT LINE
+        inner = 0.3 # degrees
+        outer = 0.5 # degrees
+        area_field = np.pi*(outer**2 - inner**2)          
+        cat = self.reduce_catalog(iso) if iso is not None else self.catalog
+        angsep_peak_center = np.sqrt((cat['x']-0)**2 + (cat['y']-0)**2)
+        n_field = np.sum((angsep_peak_center > inner) & (angsep_peak_center < outer))
+        #n_field = np.sum((angsep_peak > inner) & (angsep_peak < outer)) The above 3 lines were added to avoid going beyond patch boundries. TODO: Should be removed and this line used instead in real algorithm
+        characteristic_density_local = n_field/area_field
 
         # Loop through peaks, fit aperture for each one
         for j in range(self.n_peaks):
             angsep_peak = self.angsep_peak_array[j]
+
             # Compute local characteristic density TODO: annulus for background defined here
             inner = 0.3 # degrees
             outer = 0.5 # degrees
-            area_field = np.pi*(outer**2 - inner**2) 
-            n_field = np.sum((angsep_peak > inner) & (angsep_peak < outer))
-            characteristic_density_local = n_field/area_field
+            area_field = np.pi*(outer**2 - inner**2)          
+            #cat = self.reduce_catalog(iso) if iso is not None else self.catalog
+            #angsep_peak_center = np.sqrt((cat['x']-0)**2 + (cat['y']-0)**2)
+            #n_field = np.sum((angsep_peak_center > inner) & (angsep_peak_center < outer))
+            n_field = np.sum((angsep_peak > inner) & (angsep_peak < outer)) #The above 3 lines were added to avoid going beyond patch boundries. TODO: Should be removed and this line used instead in real algorithm
+            #characteristic_density_local = n_field/area_field
 
             # see simple_utils.py, fit_aperture
             aperture_array = np.concatenate((np.arange(0.001, 0.01, 0.001), np.arange(0.01, 0.3+1e-10, 0.01))) # degrees TODO: aperture size is scanned over here
@@ -304,10 +328,10 @@ class Dataset:
             n_obs_peak = n_obs_array[index_peak]
             n_model_peak = n_model_array[index_peak]
             n_obs_half_peak = np.sum(angsep_peak < 0.5*aperture_peak)
-            ra_peak, dec_peak = self.proj.imageToSphere(self.x_peak_array[j], self.y_peak_array[j])
+            #ra_peak, dec_peak = self.proj.imageToSphere(self.x_peak_array[j], self.y_peak_array[j])
 
-            ra_peak_array[j] = ra_peak
-            dec_peak_array[j] = dec_peak
+            #ra_peak_array[j] = ra_peak
+            #dec_peak_array[j] = dec_peak
             aperture_peak_array[j] = aperture_peak
             sig_peak_array[j] = sig_peak
             n_obs_peak_array[j] = n_obs_peak
@@ -316,8 +340,8 @@ class Dataset:
 
         # Sort by significance
         index_sort = np.argsort(sig_peak_array)[::-1]
-        ra_peak_array = ra_peak_array[index_sort]
-        dec_peak_array = dec_peak_array[index_sort]
+        ra_peak_array = self.ra_peak_array[index_sort]
+        dec_peak_array = self.dec_peak_array[index_sort]
         aperture_peak_array = aperture_peak_array[index_sort]
         sig_peak_array = sig_peak_array[index_sort]
         n_obs_peak_array = n_obs_peak_array[index_sort]
@@ -339,8 +363,10 @@ class Dataset:
         self.n_model_peak_array = n_model_peak_array[sig_peak_array > 0.]
         self.sig_peak_array = sig_peak_array[sig_peak_array > 0.] # Update the sig_peak_array last!
 
-        #return ra_peak_array, dec_peak_array, aperture_peak_array, n_obs_peak_array, n_obs_half_peak_array, n_model_peak_array, sig_peak_array
+        tinf = time.time()
+        print ' fit: {}'.format(tinf-t0)
 
+        #return ra_peak_array, dec_peak_array, aperture_peak_array, n_obs_peak_array, n_obs_half_peak_array, n_model_peak_array, sig_peak_array
 
 def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=None):
     if inputs is None:
@@ -350,7 +376,12 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
     sat = SimSatellite(inputs, sat_ra, sat_dec, distance, abs_mag, r_physical)
     data = Dataset(patch, sat)
 
-    data.fit_peaks(sat.iso)
+    start = time.time()
+    N = 10
+    for _ in range(N):
+        data.fit_peaks(sat.iso)
+    end = time.time()
+    print ' tot: {}'.format((end - start)/N)
 
     if len(data.sig_peak_array) == 0:
         sigma, aperture = 0, 0
@@ -359,9 +390,12 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
         if len(data.sig_peak_array) > 1:
             message = "Multple peaks found\n"
             message += "sigma: " + ' '.join(['{:> 6.2f}'.format(s) for s in data.sig_peak_array]) + '\n'
+            message += " apet: " + ' '.join(['{:> 6.2f}'.format(a*60) for a in data.aperture_peak_array]) + '\n'
             message += "   ra: " + ' '.join(['{:> 6.2f}'.format(r) for r in data.ra_peak_array]) + '\n'
             message += "  dec: " + ' '.join(['{:> 6.2f}'.format(d) for d in data.dec_peak_array])
-            warnings.warn(message)
+
+            #warnings.warn(message)
+
         sigma = data.sig_peak_array[0]
         aperture = data.aperture_peak_array[0]
         centroid_ra = data.ra_peak_array[0]
@@ -432,7 +466,7 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
         ax = axes[1][0]
         plt.sca(ax)
         plt.pcolormesh(data.smoothed_hist.T) # Transpose orients x/y correctly onto ra/dec
-        ticks = [10, 30, 50, 70, 90]
+        ticks = [100, 300, 500, 700, 900]
         tick_labels = [-0.4, -0.2, -0.0, 0.2, 0.4] # These would have to change for a different region size
         ax.set_xticks(ticks)
         ax.set_yticks(ticks)
@@ -485,6 +519,8 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
         outdir = 'sat_plots/'
         subprocess.call('mkdir -p {}'.format(outdir).split())
         plt.savefig(outdir + outname + '.png')
+        #plt.show()
+        #raw_input()
         plt.close()
 
     return sigma, aperture
@@ -492,7 +528,7 @@ def calc_sigma(distance, abs_mag, r_physical, plot=False, outname=None, inputs=N
 def calc_sigma_trials(distance, abs_mag, r_physical, n_trials=10, percent_bar=False, inputs=None):
     sigmas = []
     for i in range(n_trials):
-        sigma, aperture = calc_sigma(inputs, distance, abs_mag, r_physical, plot=False, inputs=inputs)
+        sigma, aperture = calc_sigma(distance, abs_mag, r_physical, plot=False, inputs=inputs)
         sigmas.append(sigma)
         if percent_bar: percent.bar(i+1, n_trials)
     return np.mean(sigmas), np.std(sigmas), sigmas
@@ -523,6 +559,10 @@ def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=
             if m < -10.0:
                 skipped_sats.append((i,round(m,2)))
                 sigma, aperture = 37.5, 0
+                if mode == 'new':
+                    sigma_table.append((d,m,r,sigma,aperture))
+                elif mode == 'old':
+                    sigma_table.append((d,m,r,sigma))
             else:
                 if mode == 'new':
                     sigma, aperture = calc_sigma(d, m, r, plot=False, inputs=inputs)
@@ -579,7 +619,7 @@ def create_sigma_matrix(distances, abs_mags, r_physicals, outname=None, n_trials
     if outname is not None:
         fits.writeto(outname+'.fits', sigma_fits, overwrite=True)
 
-    return simga_fits
+    return sigma_fits
 
 
 def plot_matrix(fname, *args, **kwargs):
@@ -832,19 +872,20 @@ if __name__ == '__main__':
         inputs = load_data.Inputs()
         calc_sigma(args.distance, args.abs_mag, args.r_physical, plot=True, inputs=inputs)
     if args.scan or args.plots:
-        distances = np.arange(400, 2200, 200)
-        abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
-        log_r_physical_pcs = np.arange(1, 3.2, 0.2)
-        r_physicals = 10**log_r_physical_pcs
-        n_trials=1
-
         #distances = np.arange(400, 2200, 200)
-        #abs_mags = np.array([-6.5])
-        #r_physicals = np.array([100])
+        #abs_mags = np.arange(-2.5, -10.5, -0.5) # -2.5 to -10 inclusive
+        #log_r_physical_pcs = np.arange(1, 3.2, 0.2)
+        #r_physicals = 10**log_r_physical_pcs
+        #n_trials=1
+
+        distances = [400, 800, 1200, 1600, 2000, 2400]
+        abs_mags = [-2, -3, -4, -5, -6, -7, -8, -9, -10]
+        log_r_physicals_pcs = np.arange(1, 3.4, 0.4)
+        r_physicals = 10**log_r_physicals_pcs
         n_trials=1
 
         if args.scan:
-            create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix', n_trials=n_trials)
+            create_sigma_matrix(distances, abs_mags, r_physicals, outname='sigma_matrix_dx=0.001_ker=2', n_trials=n_trials)
 
         if args.plots:
             subprocess.call('mkdir -p mat_plots'.split()) # Don't want to have this call happen for each and every plot
@@ -853,7 +894,7 @@ if __name__ == '__main__':
             subprocess.call('mkdir -p mat_plots/ratio'.split())
             subprocess.call('mkdir -p mat_plots/diff'.split())
 
-            fname = 'sigma_matrix'
+            fname = 'sigma_matrix_dx=0.001_ker=2'
             for d in distances:
                 plot_matrix(fname, 'abs_mag', 'r_physical', distance=d)
             for r in r_physicals:
