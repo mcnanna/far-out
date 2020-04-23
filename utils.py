@@ -30,8 +30,8 @@ def color_cut(g, r, i, gerr, rerr, ierr, color_tol=0.2):
     y = r-i
     with np.errstate(invalid='ignore'):
         cut = distance(x, y) < np.sqrt(color_tol**2 + gerr**2 + rerr*2 + ierr*2)
-    cut &= r < 24.25
-    cut &= i < 24.5
+    cut &= r < 24.5
+    cut &= i < 24.25
     return cut 
 
 def cut(iso, g, r, i, gerr, rerr, ierr, color_tol=0.2, iso_tol=0.1):

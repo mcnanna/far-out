@@ -123,18 +123,20 @@ def main(pair):
         psi = np.radians(330)
     sat_ras, sat_decs = sats.ra_dec(psi)
 
-    close_cut = (sats.distance > 300)
-    far_cut = (sats.distance < 2000)
-    footprint = ugali.utils.healpix.read_map('datafiles/healpix_nest_y6a1_footprint_griz_frac05_nimages2.fits.gz')
+    footprint = ugali.utils.healpix.read_map('datafiles/healpix_nest_y6a1_footprint_griz_frac05_nimages2.fits.gz', nest=True)
     pix = ugali.utils.healpix.angToPix(4096, sat_ras, sat_decs, nest=True)
     footprint_cut = footprint[pix] > 0
-    
-    cut = footprint_cut & close_cut# & far_cut   
 
-    table_old = significance.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut], mode='old')
-    table_new = significance.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut], mode='new')
+    table = significance.create_sigma_table(sats.distance[footprint_cut], sats.M_r[footprint_cut], sats.r_physical[footprint_cut])
+    # Add ra and dec to the table
+    new_dtype = table.dtype.descr + [('ra',float),('dec',float)]
+    new_table = np.zeros(table.shape, dtype=new_dtype)
+    for name in table.dtype.names:
+        new_table[name] = table[name]
+    new_table['ra'] = sat_ras[footprint_cut]
+    new_table['dec'] = sat_decs[footprint_cut]
 
-    return table_new, table_old
+    fits.writeto('sim_table_{}.fits'.format('RJ'), new_table, overwrite=True)
 
 
 if __name__ == '__main__':
@@ -148,7 +150,7 @@ if __name__ == '__main__':
     args = p.parse_args()
 
     if args.fname == 'default':
-        args.fname = 'sats_table_ellipse_{}'.format(args.pair)
+        args.fname = 'sats_table_circle_{}'.format(args.pair)
 
     if args.table or args.count:
         sats = Satellites(args.pair)
@@ -162,7 +164,7 @@ if __name__ == '__main__':
         print '\n Excluding {} satelites closer than 300 kpc and {} beyond 2000 kpc\n'.format(sum(~close_cut), sum(~far_cut))
         subprocess.call('mkdir -p sim_results/{}/'.format(args.pair).split())
         print "\nCalculating significances..."
-        significance.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut], outname='sim_results/{}/'.format(args.pair)+args.fname)
+        significance.create_sigma_table(sats.distance[cut], sats.M_r[cut], sats.r_physical[cut], outname='sim_results/{}/'.format(args.pair)+args.fname, mode='old')
 
     if args.count:
         sigma_table = fits.open('sim_results/{}/'.format(args.pair)+args.fname+'.fits')[1].data

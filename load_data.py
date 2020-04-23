@@ -203,7 +203,7 @@ class Halos():
         self['z'] = z-mwz
 
     def rotation(self, psi=0):
-        """Rotation matrix to put M31 at its (RA, DEC), with arbitary rotation psi
+        """Rotation matrix to put M31 at its (RA, DEC), with arbitary rotation psi (radians)
         about MW-M31 vector."""
 
         m31_ra, m31_dec = 10.6846, 41.2692
