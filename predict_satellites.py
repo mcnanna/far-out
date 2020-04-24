@@ -121,6 +121,7 @@ def main(pair):
         psi = np.radians(66)
     elif pair == 'TL':
         psi = np.radians(330)
+    psideg = int(round(np.degrees(psi),0))
     sat_ras, sat_decs = sats.ra_dec(psi)
 
     footprint = ugali.utils.healpix.read_map('datafiles/healpix_nest_y6a1_footprint_griz_frac05_nimages2.fits.gz', nest=True)
@@ -136,7 +137,8 @@ def main(pair):
     new_table['ra'] = sat_ras[footprint_cut]
     new_table['dec'] = sat_decs[footprint_cut]
 
-    fits.writeto('sim_table_{}.fits'.format('RJ'), new_table, overwrite=True)
+    subprocess.call('mkdir -p sim_results/{}/'.format(args.pair).split())
+    fits.writeto('sim_results/{0}/sats_table_{0}_psi={1}.fits'.format(pair, psideg), new_table, overwrite=True)
 
 
 if __name__ == '__main__':
@@ -147,10 +149,11 @@ if __name__ == '__main__':
     p.add_argument('-r', '--rotations', default=60, type=int)
     p.add_argument('-p', '--plots', action='store_true')
     p.add_argument('-f', '--fname', default='default')
+    p.add_argument('-m', '--main', action='store_true')
     args = p.parse_args()
 
     if args.fname == 'default':
-        args.fname = 'sats_table_circle_{}'.format(args.pair)
+        args.fname = 'sats_table_{}'.format(args.pair)
 
     if args.table or args.count:
         sats = Satellites(args.pair)
@@ -262,6 +265,9 @@ if __name__ == '__main__':
         hist(total_sats, 'Satellites in footprint', 'total_sats_hist')
         detectable_sats = [sum(cuts[0]&cuts[1]) for cuts in results]
         hist(detectable_sats, 'Detectable satellites in foorprint', 'detectable_sats_hist')
+
+    if args.main:
+        main(args.pair)
 
 
 
