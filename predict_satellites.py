@@ -235,7 +235,7 @@ if __name__ == '__main__':
 
         # Save results
         results = np.array(results)
-        np.save('sim_results/{0}/{0}_results'.format(args.pair),results)
+        np.save('sim_results/{0}/{0}_skymap_cuts'.format(args.pair),results)
 
     
     if args.plots:
