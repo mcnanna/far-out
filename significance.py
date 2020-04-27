@@ -534,17 +534,10 @@ def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=
             if m < -10.0:
                 skipped_sats.append((i,round(m,2)))
                 sigma, aperture = 37.5, 0
-                if mode == 'new':
-                    sigma_table.append((d,m,r,sigma,aperture))
-                elif mode == 'old':
-                    sigma_table.append((d,m,r,sigma))
+                sigma_table.append((d,m,r,sigma,aperture))
             else:
-                if mode == 'new':
-                    sigma, aperture = calc_sigma(d, m, r, plot=False, inputs=inputs)
-                    sigma_table.append((d,m,r,sigma,aperture))
-                elif mode == 'old':
-                    sigma = calc_sigma_old(d, m, r, plot=False, inputs=inputs)
-                    sigma_table.append((d,m,r,sigma))
+                sigma, aperture = calc_sigma(d, m, r, plot=False, inputs=inputs)
+                sigma_table.append((d,m,r,sigma,aperture))
         percent.bar(i+1, ld)
     print '{} sats skipped due to large abs_mag'.format(len(skipped_sats)) + (':' if len(skipped_sats)>0 else '')
     if len(skipped_sats)>0:
