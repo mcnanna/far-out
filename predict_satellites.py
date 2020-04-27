@@ -240,7 +240,7 @@ if __name__ == '__main__':
     
     if args.plots:
         # Plot results
-        results = np.load('sim_results/{0}/{0}_results.npy'.format(args.pair))
+        results = np.load('sim_results/{0}/{0}_skymap_cuts.npy'.format(args.pair))
         if args.pair == 'RJ':
             title = 'Romeo \& Juliet'
         elif args.pair == 'TL':
