@@ -509,7 +509,7 @@ def calc_sigma_trials(distance, abs_mag, r_physical, n_trials=10, percent_bar=Fa
     return np.mean(sigmas), np.std(sigmas), sigmas
 
 
-def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=1, mode='new'):
+def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=1):
     """Input arrays are all the same size. Runs through i in range(len(array)) and calcs sigma for the ith satellite"""
 
     ld = len(distances)
@@ -544,7 +544,7 @@ def create_sigma_table(distances, abs_mags, r_physicals, outname=None, n_trials=
         print np.array(skipped_sats)
 
     dtype = [('distance',float), ('abs_mag',float), ('r_physical',float), ('sigma',float)]
-    if n_trials == 1 and mode == 'new':
+    if n_trials == 1:
         dtype.append(('aperture',float))
     sigma_table = np.array(sigma_table, dtype=dtype)
     if outname is not None:
