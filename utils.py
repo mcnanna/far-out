@@ -24,7 +24,7 @@ def color_cut(g, r, i, gerr, rerr, ierr, color_tol=0.2):
     # y = mx + b
     m, b = 0.369485, -0.0055077
     def distance(x, y):
-        return np.sqrt( (m*x+b-y)**2 / (m**2+1) )
+        return np.abs(y-(m*x+b)) / np.sqrt(m**2+1) 
 
     x = g-r
     y = r-i
